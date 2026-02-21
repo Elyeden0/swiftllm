@@ -1,0 +1,12 @@
+# llm-proxy configuration
+port = 8080
+
+[providers.openai]
+kind = "openai"
+api_key = "sk-your-openai-key"
+models = ["gpt-4o", "gpt-4o-mini"]
+
+[providers.anthropic]
+kind = "anthropic"
+api_key = "sk-ant-your-anthropic-key"
+models = ["claude-sonnet-4-6", "claude-opus-4-6"]
