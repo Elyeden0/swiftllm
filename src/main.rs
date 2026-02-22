@@ -1,4 +1,5 @@
 mod config;
+mod providers;
 
 use clap::Parser;
 use std::path::PathBuf;
@@ -7,18 +8,14 @@ use std::path::PathBuf;
 #[command(name = "llm-proxy")]
 #[command(about = "A blazing-fast universal LLM gateway")]
 struct Cli {
-    /// Path to config file
     #[arg(short, long, default_value = "config.toml")]
     config: PathBuf,
-
-    /// Port to listen on (overrides config)
     #[arg(short, long)]
     port: Option<u16>,
 }
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-
     let mut config = config::Config::load(&cli.config)?;
 
     if let Some(port) = cli.port {
@@ -31,8 +28,7 @@ fn main() -> anyhow::Result<()> {
         config.port
     );
 
-    // TODO: initialize tracing/logging
-    // TODO: build provider instances from config
+    // TODO: build provider instances
     // TODO: start HTTP server
 
     Ok(())
