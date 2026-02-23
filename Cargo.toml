@@ -13,3 +13,6 @@ anyhow = "1"
 async-trait = "0.1"
 futures = "0.3"
 uuid = { version = "1", features = ["v4"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
