@@ -12,6 +12,7 @@ use tracing::info;
 use crate::config::{Config, ProviderKind};
 use crate::providers::types::ChatRequest;
 use crate::providers::{Provider, ProviderError};
+use crate::providers::anthropic::AnthropicProvider;
 use crate::providers::openai::OpenAiProvider;
 
 pub struct AppState {
@@ -29,7 +30,10 @@ impl AppState {
                     provider_config.api_key.clone().unwrap_or_default(),
                     provider_config.base_url.clone(),
                 ))),
-                // TODO: Anthropic provider
+                ProviderKind::Anthropic => Some(Arc::new(AnthropicProvider::new(
+                    provider_config.api_key.clone().unwrap_or_default(),
+                    provider_config.base_url.clone(),
+                ))),
                 // TODO: Ollama provider
                 _ => {
                     tracing::warn!("Provider kind {:?} not yet implemented", provider_config.kind);
@@ -49,16 +53,11 @@ pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/v1/chat/completions", post(chat_completions))
         .route("/health", get(health_check))
-        // TODO: add /v1/models endpoint
-        // TODO: add auth middleware
         .with_state(state)
 }
 
 async fn health_check() -> impl IntoResponse {
-    Json(serde_json::json!({
-        "status": "ok",
-        "version": env!("CARGO_PKG_VERSION"),
-    }))
+    Json(serde_json::json!({ "status": "ok", "version": env!("CARGO_PKG_VERSION") }))
 }
 
 async fn chat_completions(
@@ -67,41 +66,33 @@ async fn chat_completions(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let (provider_name, _) =
         state.config.find_provider_for_model(&request.model).ok_or_else(|| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": {
-                        "message": format!("No provider configured for model: {}", request.model),
-                        "type": "invalid_request_error",
-                    }
-                })),
-            )
+            (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                "error": { "message": format!("No provider for model: {}", request.model), "type": "invalid_request_error" }
+            })))
         })?;
 
     let provider = state.providers.get(provider_name).ok_or_else(|| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({
-                "error": { "message": "Provider not initialized", "type": "server_error" }
-            })),
-        )
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+            "error": { "message": "Provider not initialized", "type": "server_error" }
+        })))
     })?;
 
     info!(model = %request.model, provider = provider_name.as_str(), "Routing request");
 
-    // TODO: handle streaming requests
-    // TODO: add response caching
-    let response = provider.chat(&request).await.map_err(|e| {
-        let (status, message) = match &e {
-            ProviderError::Network(msg) => (StatusCode::BAD_GATEWAY, msg.clone()),
-            ProviderError::Api { status, message } => (
-                StatusCode::from_u16(*status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
-                message.clone(),
-            ),
-            ProviderError::Parse(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
-        };
-        (status, Json(serde_json::json!({ "error": { "message": message, "type": "proxy_error" } })))
-    })?;
-
+    // TODO: handle streaming
+    // TODO: auth check
+    let response = provider.chat(&request).await.map_err(provider_error_to_response)?;
     Ok(Json(serde_json::to_value(response).unwrap()))
+}
+
+fn provider_error_to_response(err: ProviderError) -> (StatusCode, Json<serde_json::Value>) {
+    let (status, message) = match &err {
+        ProviderError::Network(msg) => (StatusCode::BAD_GATEWAY, msg.clone()),
+        ProviderError::Api { status, message } => (
+            StatusCode::from_u16(*status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+            message.clone(),
+        ),
+        ProviderError::Parse(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
+    };
+    (status, Json(serde_json::json!({ "error": { "message": message, "type": "proxy_error" } })))
 }
