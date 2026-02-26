@@ -27,6 +27,8 @@ impl AnthropicProvider {
 struct AnthropicRequest {
     model: String,
     max_tokens: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    system: Option<String>,
     messages: Vec<AnthropicMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f64>,
@@ -34,8 +36,6 @@ struct AnthropicRequest {
     top_p: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stop_sequences: Option<Vec<String>>,
-    // TODO: handle system messages — right now they're just passed as regular messages
-    // which will cause Anthropic API to error
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -69,20 +69,25 @@ struct AnthropicUsage {
 }
 
 fn to_anthropic_request(req: &ChatRequest) -> AnthropicRequest {
-    // BUG: this doesn't handle system messages properly
-    // system messages should be extracted to the top-level "system" field
-    let messages = req
-        .messages
-        .iter()
-        .map(|m| AnthropicMessage {
-            role: m.role.clone(),
-            content: m.content.clone().unwrap_or_default(),
-        })
-        .collect();
+    let mut system_message = None;
+    let mut messages = Vec::new();
+
+    // Extract system messages to the top-level field (Anthropic API requirement)
+    for msg in &req.messages {
+        if msg.role == "system" {
+            system_message = msg.content.clone();
+        } else {
+            messages.push(AnthropicMessage {
+                role: msg.role.clone(),
+                content: msg.content.clone().unwrap_or_default(),
+            });
+        }
+    }
 
     AnthropicRequest {
         model: req.model.clone(),
         max_tokens: req.max_tokens.unwrap_or(4096),
+        system: system_message,
         messages,
         temperature: req.temperature,
         top_p: req.top_p,
