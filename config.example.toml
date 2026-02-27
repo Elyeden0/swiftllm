@@ -10,3 +10,8 @@ models = ["gpt-4o", "gpt-4o-mini"]
 kind = "anthropic"
 api_key = "sk-ant-your-anthropic-key"
 models = ["claude-sonnet-4-6", "claude-opus-4-6"]
+
+[providers.ollama]
+kind = "ollama"
+base_url = "http://localhost:11434"
+models = ["llama3:latest", "mistral:latest"]

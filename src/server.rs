@@ -13,6 +13,7 @@ use crate::config::{Config, ProviderKind};
 use crate::providers::types::ChatRequest;
 use crate::providers::{Provider, ProviderError};
 use crate::providers::anthropic::AnthropicProvider;
+use crate::providers::ollama::OllamaProvider;
 use crate::providers::openai::OpenAiProvider;
 
 pub struct AppState {
@@ -25,24 +26,20 @@ impl AppState {
         let mut providers: HashMap<String, Arc<dyn Provider>> = HashMap::new();
 
         for (name, provider_config) in &config.providers {
-            let provider: Option<Arc<dyn Provider>> = match provider_config.kind {
-                ProviderKind::Openai => Some(Arc::new(OpenAiProvider::new(
+            let provider: Arc<dyn Provider> = match provider_config.kind {
+                ProviderKind::Openai => Arc::new(OpenAiProvider::new(
                     provider_config.api_key.clone().unwrap_or_default(),
                     provider_config.base_url.clone(),
-                ))),
-                ProviderKind::Anthropic => Some(Arc::new(AnthropicProvider::new(
+                )),
+                ProviderKind::Anthropic => Arc::new(AnthropicProvider::new(
                     provider_config.api_key.clone().unwrap_or_default(),
                     provider_config.base_url.clone(),
-                ))),
-                // TODO: Ollama provider
-                _ => {
-                    tracing::warn!("Provider kind {:?} not yet implemented", provider_config.kind);
-                    None
-                }
+                )),
+                ProviderKind::Ollama => Arc::new(OllamaProvider::new(
+                    provider_config.base_url.clone(),
+                )),
             };
-            if let Some(p) = provider {
-                providers.insert(name.clone(), p);
-            }
+            providers.insert(name.clone(), provider);
         }
 
         Self { config, providers }
@@ -53,6 +50,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/v1/chat/completions", post(chat_completions))
         .route("/health", get(health_check))
+        // TODO: /v1/models endpoint
+        // TODO: auth middleware
         .with_state(state)
 }
 
@@ -79,8 +78,7 @@ async fn chat_completions(
 
     info!(model = %request.model, provider = provider_name.as_str(), "Routing request");
 
-    // TODO: handle streaming
-    // TODO: auth check
+    // TODO: handle streaming requests
     let response = provider.chat(&request).await.map_err(provider_error_to_response)?;
     Ok(Json(serde_json::to_value(response).unwrap()))
 }
