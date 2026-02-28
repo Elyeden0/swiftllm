@@ -1,13 +1,16 @@
 use axum::{
+    body::Body,
     extract::State,
     http::StatusCode,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
+use futures::StreamExt;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::info;
+use tokio_stream::wrappers::ReceiverStream;
+use tracing::{error, info};
 
 use crate::config::{Config, ProviderKind};
 use crate::providers::types::ChatRequest;
@@ -24,7 +27,6 @@ pub struct AppState {
 impl AppState {
     pub fn new(config: Config) -> Self {
         let mut providers: HashMap<String, Arc<dyn Provider>> = HashMap::new();
-
         for (name, provider_config) in &config.providers {
             let provider: Arc<dyn Provider> = match provider_config.kind {
                 ProviderKind::Openai => Arc::new(OpenAiProvider::new(
@@ -41,7 +43,6 @@ impl AppState {
             };
             providers.insert(name.clone(), provider);
         }
-
         Self { config, providers }
     }
 }
@@ -50,8 +51,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/v1/chat/completions", post(chat_completions))
         .route("/health", get(health_check))
-        // TODO: /v1/models endpoint
-        // TODO: auth middleware
+        // TODO: /v1/models, auth, caching
         .with_state(state)
 }
 
@@ -62,7 +62,7 @@ async fn health_check() -> impl IntoResponse {
 async fn chat_completions(
     State(state): State<Arc<AppState>>,
     Json(request): Json<ChatRequest>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
     let (provider_name, _) =
         state.config.find_provider_for_model(&request.model).ok_or_else(|| {
             (StatusCode::BAD_REQUEST, Json(serde_json::json!({
@@ -76,11 +76,43 @@ async fn chat_completions(
         })))
     })?;
 
-    info!(model = %request.model, provider = provider_name.as_str(), "Routing request");
+    info!(model = %request.model, provider = provider_name.as_str(), stream = request.is_streaming(), "Routing request");
 
-    // TODO: handle streaming requests
-    let response = provider.chat(&request).await.map_err(provider_error_to_response)?;
-    Ok(Json(serde_json::to_value(response).unwrap()))
+    if request.is_streaming() {
+        handle_streaming(provider.clone(), request).await.map_err(provider_error_to_response)
+    } else {
+        let response = provider.chat(&request).await.map_err(provider_error_to_response)?;
+        Ok(Json(response).into_response())
+    }
+}
+
+async fn handle_streaming(
+    provider: Arc<dyn Provider>,
+    request: ChatRequest,
+) -> Result<Response, ProviderError> {
+    let mut stream = provider.chat_stream(&request).await?;
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<String, std::convert::Infallible>>(32);
+
+    tokio::spawn(async move {
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(chunk) => {
+                    let data = format!("data: {}\n\n", serde_json::to_string(&chunk).unwrap());
+                    if tx.send(Ok(data)).await.is_err() { break; }
+                }
+                Err(e) => { error!("Stream error: {}", e); break; }
+            }
+        }
+        let _ = tx.send(Ok("data: [DONE]\n\n".to_string())).await;
+    });
+
+    let body = Body::from_stream(ReceiverStream::new(rx));
+    Ok(Response::builder()
+        .header("Content-Type", "text/event-stream")
+        .header("Cache-Control", "no-cache")
+        .header("Connection", "keep-alive")
+        .body(body)
+        .unwrap())
 }
 
 fn provider_error_to_response(err: ProviderError) -> (StatusCode, Json<serde_json::Value>) {

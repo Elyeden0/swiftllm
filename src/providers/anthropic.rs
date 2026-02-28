@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use futures::stream::BoxStream;
+use futures::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error};
@@ -23,6 +24,8 @@ impl AnthropicProvider {
     }
 }
 
+// ── Anthropic-specific request/response types ──
+
 #[derive(Debug, Serialize)]
 struct AnthropicRequest {
     model: String,
@@ -36,6 +39,8 @@ struct AnthropicRequest {
     top_p: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stop_sequences: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    stream: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -68,11 +73,32 @@ struct AnthropicUsage {
     output_tokens: u64,
 }
 
-fn to_anthropic_request(req: &ChatRequest) -> AnthropicRequest {
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct AnthropicStreamEvent {
+    #[serde(rename = "type")]
+    event_type: String,
+    #[serde(default)]
+    delta: Option<AnthropicDelta>,
+    #[serde(default)]
+    usage: Option<AnthropicUsage>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct AnthropicDelta {
+    #[serde(rename = "type")]
+    delta_type: Option<String>,
+    text: Option<String>,
+    stop_reason: Option<String>,
+}
+
+// ── Format translation ──
+
+fn to_anthropic_request(req: &ChatRequest, stream: bool) -> AnthropicRequest {
     let mut system_message = None;
     let mut messages = Vec::new();
 
-    // Extract system messages to the top-level field (Anthropic API requirement)
     for msg in &req.messages {
         if msg.role == "system" {
             system_message = msg.content.clone();
@@ -92,6 +118,7 @@ fn to_anthropic_request(req: &ChatRequest) -> AnthropicRequest {
         temperature: req.temperature,
         top_p: req.top_p,
         stop_sequences: req.stop.clone(),
+        stream,
     }
 }
 
@@ -114,6 +141,17 @@ fn anthropic_to_chat_response(resp: AnthropicResponse) -> ChatResponse {
     )
 }
 
+fn map_stop_reason(reason: &str) -> &str {
+    match reason {
+        "end_turn" => "stop",
+        "max_tokens" => "length",
+        "stop_sequence" => "stop",
+        other => other,
+    }
+}
+
+// ── Provider implementation ──
+
 #[async_trait]
 impl Provider for AnthropicProvider {
     fn name(&self) -> &str {
@@ -124,7 +162,7 @@ impl Provider for AnthropicProvider {
         debug!("Anthropic chat request for model: {}", request.model);
 
         let url = format!("{}/v1/messages", self.base_url);
-        let anthropic_req = to_anthropic_request(request);
+        let anthropic_req = to_anthropic_request(request, false);
 
         let response = self
             .client
@@ -141,7 +179,10 @@ impl Provider for AnthropicProvider {
         if status >= 400 {
             let body = response.text().await.unwrap_or_default();
             error!("Anthropic API error {}: {}", status, body);
-            return Err(ProviderError::Api { status, message: body });
+            return Err(ProviderError::Api {
+                status,
+                message: body,
+            });
         }
 
         let anthropic_resp: AnthropicResponse = response
@@ -154,9 +195,90 @@ impl Provider for AnthropicProvider {
 
     async fn chat_stream(
         &self,
-        _request: &ChatRequest,
+        request: &ChatRequest,
     ) -> Result<BoxStream<'static, Result<StreamChunk, ProviderError>>, ProviderError> {
-        // TODO: implement streaming
-        Err(ProviderError::Network("Streaming not yet implemented".to_string()))
+        debug!("Anthropic streaming request for model: {}", request.model);
+
+        let url = format!("{}/v1/messages", self.base_url);
+        let anthropic_req = to_anthropic_request(request, true);
+
+        let response = self
+            .client
+            .post(&url)
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("Content-Type", "application/json")
+            .json(&anthropic_req)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Network(e.to_string()))?;
+
+        let status = response.status().as_u16();
+        if status >= 400 {
+            let body = response.text().await.unwrap_or_default();
+            return Err(ProviderError::Api {
+                status,
+                message: body,
+            });
+        }
+
+        let model = request.model.clone();
+        let stream = response
+            .bytes_stream()
+            .map(move |result| match result {
+                Ok(bytes) => {
+                    let text = String::from_utf8_lossy(&bytes);
+                    parse_anthropic_sse(&text, &model)
+                }
+                Err(e) => vec![Err(ProviderError::Network(e.to_string()))],
+            })
+            .flat_map(futures::stream::iter);
+
+        Ok(Box::pin(stream))
     }
+}
+
+/// Parse Anthropic SSE events and translate to OpenAI-compatible StreamChunks
+fn parse_anthropic_sse(text: &str, model: &str) -> Vec<Result<StreamChunk, ProviderError>> {
+    let mut chunks = Vec::new();
+
+    for line in text.lines() {
+        let line = line.trim();
+        if let Some(data) = line.strip_prefix("data: ") {
+            match serde_json::from_str::<AnthropicStreamEvent>(data) {
+                Ok(event) => {
+                    match event.event_type.as_str() {
+                        "content_block_delta" => {
+                            if let Some(delta) = &event.delta {
+                                if let Some(text) = &delta.text {
+                                    chunks.push(Ok(StreamChunk::new(
+                                        model,
+                                        Some(text.clone()),
+                                        None,
+                                    )));
+                                }
+                            }
+                        }
+                        "message_delta" => {
+                            if let Some(delta) = &event.delta {
+                                if let Some(reason) = &delta.stop_reason {
+                                    chunks.push(Ok(StreamChunk::new(
+                                        model,
+                                        None,
+                                        Some(map_stop_reason(reason).to_string()),
+                                    )));
+                                }
+                            }
+                        }
+                        _ => {} // Ignore other event types
+                    }
+                }
+                Err(_) => {
+                    debug!("Skipping unparseable Anthropic SSE data: {}", data);
+                }
+            }
+        }
+    }
+
+    chunks
 }

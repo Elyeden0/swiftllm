@@ -15,7 +15,10 @@ pub struct ChatRequest {
     pub stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop: Option<Vec<String>>,
-    // TODO: add presence_penalty, frequency_penalty
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presence_penalty: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frequency_penalty: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,7 +54,7 @@ pub struct Usage {
     pub total_tokens: u64,
 }
 
-// TODO: flesh out streaming types
+/// OpenAI-compatible streaming chunk
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StreamChunk {
     pub id: String,
@@ -101,6 +104,32 @@ impl ChatResponse {
                 finish_reason: Some("stop".to_string()),
             }],
             usage,
+        }
+    }
+}
+
+impl StreamChunk {
+    pub fn new(model: &str, content: Option<String>, finish_reason: Option<String>) -> Self {
+        Self {
+            id: format!("chatcmpl-{}", uuid::Uuid::new_v4()),
+            object: "chat.completion.chunk".to_string(),
+            created: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            model: model.to_string(),
+            choices: vec![StreamChoice {
+                index: 0,
+                delta: Delta {
+                    role: if content.is_none() && finish_reason.is_none() {
+                        Some("assistant".to_string())
+                    } else {
+                        None
+                    },
+                    content,
+                },
+                finish_reason,
+            }],
         }
     }
 }

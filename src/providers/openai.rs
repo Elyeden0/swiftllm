@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use futures::stream::BoxStream;
+use futures::StreamExt;
 use reqwest::Client;
 use tracing::{debug, error};
 
@@ -33,6 +34,7 @@ impl Provider for OpenAiProvider {
 
         let url = format!("{}/v1/chat/completions", self.base_url);
 
+        // For OpenAI, the request format is already correct — just forward it
         let mut req = ChatRequest::clone(request);
         req.stream = Some(false);
 
@@ -50,7 +52,10 @@ impl Provider for OpenAiProvider {
         if status >= 400 {
             let body = response.text().await.unwrap_or_default();
             error!("OpenAI API error {}: {}", status, body);
-            return Err(ProviderError::Api { status, message: body });
+            return Err(ProviderError::Api {
+                status,
+                message: body,
+            });
         }
 
         response
@@ -61,9 +66,68 @@ impl Provider for OpenAiProvider {
 
     async fn chat_stream(
         &self,
-        _request: &ChatRequest,
+        request: &ChatRequest,
     ) -> Result<BoxStream<'static, Result<StreamChunk, ProviderError>>, ProviderError> {
-        // TODO: implement SSE streaming
-        Err(ProviderError::Network("Streaming not yet implemented".to_string()))
+        debug!("OpenAI streaming request for model: {}", request.model);
+
+        let url = format!("{}/v1/chat/completions", self.base_url);
+
+        let mut req = ChatRequest::clone(request);
+        req.stream = Some(true);
+
+        let response = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(&req)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Network(e.to_string()))?;
+
+        let status = response.status().as_u16();
+        if status >= 400 {
+            let body = response.text().await.unwrap_or_default();
+            return Err(ProviderError::Api {
+                status,
+                message: body,
+            });
+        }
+
+        let stream = response
+            .bytes_stream()
+            .map(|result| match result {
+                Ok(bytes) => {
+                    let text = String::from_utf8_lossy(&bytes);
+                    parse_sse_chunks(&text)
+                }
+                Err(e) => vec![Err(ProviderError::Network(e.to_string()))],
+            })
+            .flat_map(futures::stream::iter);
+
+        Ok(Box::pin(stream))
     }
+}
+
+/// Parse SSE data lines into StreamChunk objects
+fn parse_sse_chunks(text: &str) -> Vec<Result<StreamChunk, ProviderError>> {
+    let mut chunks = Vec::new();
+
+    for line in text.lines() {
+        let line = line.trim();
+        if let Some(data) = line.strip_prefix("data: ") {
+            if data == "[DONE]" {
+                continue;
+            }
+            match serde_json::from_str::<StreamChunk>(data) {
+                Ok(chunk) => chunks.push(Ok(chunk)),
+                Err(e) => {
+                    // Skip unparseable lines (partial JSON, etc.)
+                    debug!("Failed to parse SSE chunk: {} — data: {}", e, data);
+                }
+            }
+        }
+    }
+
+    chunks
 }
