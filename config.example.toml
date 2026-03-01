@@ -1,6 +1,10 @@
 # llm-proxy configuration
 port = 8080
 
+# Authentication — leave api_keys empty to disable auth
+[auth]
+api_keys = ["your-proxy-api-key"]
+
 [providers.openai]
 kind = "openai"
 api_key = "sk-your-openai-key"

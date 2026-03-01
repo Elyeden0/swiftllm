@@ -1,7 +1,7 @@
 use axum::{
     body::Body,
     extract::State,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -50,8 +50,10 @@ impl AppState {
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/v1/chat/completions", post(chat_completions))
+        .route("/v1/models", get(list_models))
         .route("/health", get(health_check))
-        // TODO: /v1/models, auth, caching
+        // TODO: caching middleware
+        // TODO: cost tracking
         .with_state(state)
 }
 
@@ -59,10 +61,38 @@ async fn health_check() -> impl IntoResponse {
     Json(serde_json::json!({ "status": "ok", "version": env!("CARGO_PKG_VERSION") }))
 }
 
+async fn list_models(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let mut models = Vec::new();
+    for (name, provider_config) in &state.config.providers {
+        for model in &provider_config.models {
+            models.push(serde_json::json!({ "id": model, "object": "model", "owned_by": name }));
+        }
+    }
+    Json(serde_json::json!({ "object": "list", "data": models }))
+}
+
 async fn chat_completions(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(request): Json<ChatRequest>,
 ) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
+    // Auth check
+    if !state.config.auth.api_keys.is_empty() {
+        let provided_key = headers
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "));
+
+        match provided_key {
+            Some(key) if state.config.auth.api_keys.contains(&key.to_string()) => {}
+            _ => {
+                return Err((StatusCode::UNAUTHORIZED, Json(serde_json::json!({
+                    "error": { "message": "Invalid API key", "type": "authentication_error" }
+                }))));
+            }
+        }
+    }
+
     let (provider_name, _) =
         state.config.find_provider_for_model(&request.model).ok_or_else(|| {
             (StatusCode::BAD_REQUEST, Json(serde_json::json!({
@@ -86,10 +116,7 @@ async fn chat_completions(
     }
 }
 
-async fn handle_streaming(
-    provider: Arc<dyn Provider>,
-    request: ChatRequest,
-) -> Result<Response, ProviderError> {
+async fn handle_streaming(provider: Arc<dyn Provider>, request: ChatRequest) -> Result<Response, ProviderError> {
     let mut stream = provider.chat_stream(&request).await?;
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<String, std::convert::Infallible>>(32);
 
@@ -111,16 +138,14 @@ async fn handle_streaming(
         .header("Content-Type", "text/event-stream")
         .header("Cache-Control", "no-cache")
         .header("Connection", "keep-alive")
-        .body(body)
-        .unwrap())
+        .body(body).unwrap())
 }
 
 fn provider_error_to_response(err: ProviderError) -> (StatusCode, Json<serde_json::Value>) {
     let (status, message) = match &err {
         ProviderError::Network(msg) => (StatusCode::BAD_GATEWAY, msg.clone()),
         ProviderError::Api { status, message } => (
-            StatusCode::from_u16(*status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
-            message.clone(),
+            StatusCode::from_u16(*status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), message.clone(),
         ),
         ProviderError::Parse(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
     };
