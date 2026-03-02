@@ -12,13 +12,14 @@ pub struct Config {
 
     pub providers: HashMap<String, ProviderConfig>,
 
-    // TODO: add routing config (default provider)
+    #[serde(default)]
+    pub routing: RoutingConfig,
+
     // TODO: add cache config
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct AuthConfig {
-    /// API keys that clients must provide to use the proxy
     #[serde(default)]
     pub api_keys: Vec<String>,
 }
@@ -31,7 +32,8 @@ pub struct ProviderConfig {
     pub base_url: Option<String>,
     #[serde(default)]
     pub models: Vec<String>,
-    // TODO: add priority for failover
+    #[serde(default = "default_priority")]
+    pub priority: u32,
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
@@ -42,8 +44,14 @@ pub enum ProviderKind {
     Ollama,
 }
 
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct RoutingConfig {
+    pub default_provider: Option<String>,
+}
+
 fn default_port() -> u16 { 8080 }
 fn default_base_url_none() -> Option<String> { None }
+fn default_priority() -> u32 { 100 }
 
 impl Config {
     pub fn load(path: &Path) -> anyhow::Result<Self> {
@@ -55,13 +63,44 @@ impl Config {
     }
 
     pub fn find_provider_for_model(&self, model: &str) -> Option<(&String, &ProviderConfig)> {
-        // Exact match only for now
-        // TODO: add prefix-based matching
+        // First: exact match in provider model lists
         for (name, provider) in &self.providers {
             if provider.models.iter().any(|m| m == model) {
                 return Some((name, provider));
             }
         }
+
+        // Second: prefix-based matching
+        for (name, provider) in &self.providers {
+            let matches = match provider.kind {
+                ProviderKind::Openai => {
+                    model.starts_with("gpt-") || model.starts_with("o1") || model.starts_with("o3") || model.starts_with("o4")
+                }
+                ProviderKind::Anthropic => {
+                    model.starts_with("claude-")
+                }
+                ProviderKind::Ollama => {
+                    model.contains(':')
+                }
+            };
+            if matches {
+                return Some((name, provider));
+            }
+        }
+
+        // Third: default provider
+        if let Some(ref default_name) = self.routing.default_provider {
+            if let Some(provider) = self.providers.get(default_name) {
+                return Some((default_name, provider));
+            }
+        }
+
         None
+    }
+
+    pub fn providers_by_priority(&self) -> Vec<(&String, &ProviderConfig)> {
+        let mut providers: Vec<_> = self.providers.iter().collect();
+        providers.sort_by_key(|(_, p)| p.priority);
+        providers
     }
 }
