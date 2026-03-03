@@ -15,11 +15,13 @@ pub struct Config {
     #[serde(default)]
     pub routing: RoutingConfig,
 
-    // TODO: add cache config
+    #[serde(default)]
+    pub cache: CacheConfig,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct AuthConfig {
+    /// API keys that clients must provide to use the proxy
     #[serde(default)]
     pub api_keys: Vec<String>,
 }
@@ -32,6 +34,7 @@ pub struct ProviderConfig {
     pub base_url: Option<String>,
     #[serde(default)]
     pub models: Vec<String>,
+    /// Priority for failover (lower = higher priority)
     #[serde(default = "default_priority")]
     pub priority: u32,
 }
@@ -46,12 +49,53 @@ pub enum ProviderKind {
 
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct RoutingConfig {
+    /// Fallback provider name if model not found in any provider's model list
     pub default_provider: Option<String>,
 }
 
-fn default_port() -> u16 { 8080 }
-fn default_base_url_none() -> Option<String> { None }
-fn default_priority() -> u32 { 100 }
+#[derive(Debug, Deserialize, Clone)]
+pub struct CacheConfig {
+    #[serde(default = "default_cache_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_cache_max_size")]
+    pub max_size: usize,
+    #[serde(default = "default_cache_ttl")]
+    pub ttl_seconds: u64,
+}
+
+impl Default for CacheConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_size: 1000,
+            ttl_seconds: 300,
+        }
+    }
+}
+
+fn default_cache_enabled() -> bool {
+    true
+}
+
+fn default_cache_max_size() -> usize {
+    1000
+}
+
+fn default_cache_ttl() -> u64 {
+    300
+}
+
+fn default_port() -> u16 {
+    8080
+}
+
+fn default_base_url_none() -> Option<String> {
+    None
+}
+
+fn default_priority() -> u32 {
+    100
+}
 
 impl Config {
     pub fn load(path: &Path) -> anyhow::Result<Self> {
@@ -62,6 +106,7 @@ impl Config {
         Ok(config)
     }
 
+    /// Find which provider should handle a given model name
     pub fn find_provider_for_model(&self, model: &str) -> Option<(&String, &ProviderConfig)> {
         // First: exact match in provider model lists
         for (name, provider) in &self.providers {
@@ -70,7 +115,7 @@ impl Config {
             }
         }
 
-        // Second: prefix-based matching
+        // Second: prefix-based matching (e.g., "claude-" → anthropic, "gpt-" → openai)
         for (name, provider) in &self.providers {
             let matches = match provider.kind {
                 ProviderKind::Openai => {
@@ -80,7 +125,7 @@ impl Config {
                     model.starts_with("claude-")
                 }
                 ProviderKind::Ollama => {
-                    model.contains(':')
+                    model.contains(':') // ollama models typically have "model:tag" format
                 }
             };
             if matches {
@@ -98,6 +143,7 @@ impl Config {
         None
     }
 
+    /// Get providers sorted by priority for failover
     pub fn providers_by_priority(&self) -> Vec<(&String, &ProviderConfig)> {
         let mut providers: Vec<_> = self.providers.iter().collect();
         providers.sort_by_key(|(_, p)| p.priority);

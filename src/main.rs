@@ -1,4 +1,5 @@
 mod config;
+mod middleware;
 mod providers;
 mod server;
 
@@ -37,6 +38,9 @@ async fn main() -> anyhow::Result<()> {
 
     let port = config.port;
     let provider_count = config.providers.len();
+    let cache_enabled = config.cache.enabled;
+    let cache_max = config.cache.max_size;
+    let cache_ttl = config.cache.ttl_seconds;
 
     let state = Arc::new(server::AppState::new(config));
     let app = server::build_router(state);
@@ -44,6 +48,10 @@ async fn main() -> anyhow::Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     info!("llm-proxy v{} starting on http://{}", env!("CARGO_PKG_VERSION"), addr);
     info!("{} provider(s) configured", provider_count);
+    if cache_enabled {
+        info!("Cache enabled (max {} entries, {}s TTL)", cache_max, cache_ttl);
+    }
+    // TODO: add dashboard URL log
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;

@@ -13,6 +13,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tracing::{error, info};
 
 use crate::config::{Config, ProviderKind};
+use crate::middleware::cache::ResponseCache;
 use crate::providers::types::ChatRequest;
 use crate::providers::{Provider, ProviderError};
 use crate::providers::anthropic::AnthropicProvider;
@@ -22,6 +23,8 @@ use crate::providers::openai::OpenAiProvider;
 pub struct AppState {
     pub config: Config,
     pub providers: HashMap<String, Arc<dyn Provider>>,
+    pub cache: Option<ResponseCache>,
+    // TODO: add cost tracker
 }
 
 impl AppState {
@@ -43,7 +46,14 @@ impl AppState {
             };
             providers.insert(name.clone(), provider);
         }
-        Self { config, providers }
+
+        let cache = if config.cache.enabled {
+            Some(ResponseCache::new(config.cache.max_size, config.cache.ttl_seconds))
+        } else {
+            None
+        };
+
+        Self { config, providers, cache }
     }
 }
 
@@ -52,8 +62,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/models", get(list_models))
         .route("/health", get(health_check))
-        // TODO: caching middleware
-        // TODO: cost tracking
         .with_state(state)
 }
 
@@ -82,7 +90,6 @@ async fn chat_completions(
             .get("authorization")
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.strip_prefix("Bearer "));
-
         match provided_key {
             Some(key) if state.config.auth.api_keys.contains(&key.to_string()) => {}
             _ => {
@@ -93,10 +100,20 @@ async fn chat_completions(
         }
     }
 
+    // Check cache for non-streaming requests
+    if !request.is_streaming() {
+        if let Some(cache) = &state.cache {
+            if let Some(cached) = cache.get(&request) {
+                info!(model = %request.model, "Cache hit");
+                return Ok(Json(cached).into_response());
+            }
+        }
+    }
+
     let (provider_name, _) =
         state.config.find_provider_for_model(&request.model).ok_or_else(|| {
             (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-                "error": { "message": format!("No provider for model: {}", request.model), "type": "invalid_request_error" }
+                "error": { "message": format!("No provider configured for model: {}", request.model), "type": "invalid_request_error" }
             })))
         })?;
 
@@ -112,6 +129,10 @@ async fn chat_completions(
         handle_streaming(provider.clone(), request).await.map_err(provider_error_to_response)
     } else {
         let response = provider.chat(&request).await.map_err(provider_error_to_response)?;
+        // Cache the response
+        if let Some(cache) = &state.cache {
+            cache.put(&request, response.clone());
+        }
         Ok(Json(response).into_response())
     }
 }
@@ -119,7 +140,6 @@ async fn chat_completions(
 async fn handle_streaming(provider: Arc<dyn Provider>, request: ChatRequest) -> Result<Response, ProviderError> {
     let mut stream = provider.chat_stream(&request).await?;
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<String, std::convert::Infallible>>(32);
-
     tokio::spawn(async move {
         while let Some(result) = stream.next().await {
             match result {
@@ -132,7 +152,6 @@ async fn handle_streaming(provider: Arc<dyn Provider>, request: ChatRequest) -> 
         }
         let _ = tx.send(Ok("data: [DONE]\n\n".to_string())).await;
     });
-
     let body = Body::from_stream(ReceiverStream::new(rx));
     Ok(Response::builder()
         .header("Content-Type", "text/event-stream")

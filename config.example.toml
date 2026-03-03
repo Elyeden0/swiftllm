@@ -1,4 +1,6 @@
 # llm-proxy configuration
+
+# Port to listen on
 port = 8080
 
 # Authentication — leave api_keys empty to disable auth
@@ -8,6 +10,12 @@ api_keys = ["your-proxy-api-key"]
 # Routing configuration
 [routing]
 default_provider = "openai"
+
+# Response cache (for non-streaming requests)
+[cache]
+enabled = true
+max_size = 1000       # max cached responses
+ttl_seconds = 300     # cache entry lifetime
 
 # ── Providers ──
 
