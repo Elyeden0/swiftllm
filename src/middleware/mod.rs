@@ -1,2 +1,2 @@
 pub mod cache;
-// TODO: add cost tracking module
+pub mod cost;
