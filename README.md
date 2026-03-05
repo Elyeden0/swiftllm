@@ -1,0 +1,136 @@
+# llm-proxy
+
+A blazing-fast universal LLM gateway written in Rust. Route requests to OpenAI, Anthropic, Ollama, and more through a single OpenAI-compatible API.
+
+```
+┌──────────────┐       ┌─────────────┐       ┌──────────┐
+│  Your App    │──────▶│  llm-proxy  │──────▶│  OpenAI  │
+│  (any SDK)   │       │  :8080      │──────▶│ Anthropic│
+└──────────────┘       └─────────────┘──────▶│  Ollama  │
+                                              └──────────┘
+```
+
+## Why?
+
+Most teams use multiple LLM providers. That means juggling different SDKs, API formats, and billing dashboards. **llm-proxy** gives you:
+
+- **One endpoint** — drop-in replacement for the OpenAI API. Use any SDK or tool that speaks OpenAI format.
+- **Automatic routing** — requests route to the right provider based on model name (`gpt-4o` → OpenAI, `claude-sonnet-4-6` → Anthropic, `llama3:latest` → Ollama).
+- **Streaming support** — full SSE streaming with format translation across all providers.
+- **Single binary** — no runtime dependencies, no Docker required. Just download and run.
+- **~1ms overhead** — built in Rust with async I/O. Adds negligible latency.
+
+## Quick Start
+
+### From source
+
+```bash
+git clone https://github.com/yourusername/llm-proxy
+cd llm-proxy
+cargo build --release
+
+# Copy and edit the config
+cp config.example.toml config.toml
+# Add your API keys...
+
+./target/release/llm-proxy --config config.toml
+```
+
+### Usage
+
+Once running, point any OpenAI-compatible client at `http://localhost:8080`:
+
+```bash
+# Non-streaming
+curl http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-proxy-api-key" \
+  -d '{
+    "model": "claude-sonnet-4-6",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+
+# Streaming
+curl http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-proxy-api-key" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "Tell me a joke"}],
+    "stream": true
+  }'
+```
+
+Works with the OpenAI Python SDK:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://localhost:8080/v1",
+    api_key="your-proxy-api-key",
+)
+
+# Use any model from any provider
+response = client.chat.completions.create(
+    model="claude-sonnet-4-6",  # Routes to Anthropic
+    messages=[{"role": "user", "content": "Hello!"}],
+)
+```
+
+## Configuration
+
+See [`config.example.toml`](config.example.toml) for all options.
+
+```toml
+port = 8080
+
+[auth]
+api_keys = ["your-proxy-api-key"]
+
+[providers.openai]
+kind = "openai"
+api_key = "sk-..."
+models = ["gpt-4o", "gpt-4o-mini"]
+
+[providers.anthropic]
+kind = "anthropic"
+api_key = "sk-ant-..."
+models = ["claude-sonnet-4-6", "claude-opus-4-6"]
+
+[providers.ollama]
+kind = "ollama"
+base_url = "http://localhost:11434"
+models = ["llama3:latest", "mistral:latest"]
+```
+
+### Model routing
+
+Models are routed to providers in this order:
+
+1. **Exact match** — if a model name appears in a provider's `models` list
+2. **Prefix match** — `gpt-*` → OpenAI, `claude-*` → Anthropic, `model:tag` → Ollama
+3. **Default provider** — the `routing.default_provider` fallback
+
+## API Endpoints
+
+| Endpoint | Description |
+|---|---|
+| `POST /v1/chat/completions` | Chat completions (streaming & non-streaming) |
+| `GET /v1/models` | List all configured models |
+| `GET /health` | Health check |
+
+## Roadmap
+
+- [ ] Response caching (LRU with configurable TTL)
+- [ ] Cost tracking & token counting dashboard
+- [ ] Rate limiting per provider
+- [ ] Automatic failover with priority chains
+- [ ] Embedded web dashboard
+- [ ] Google Gemini provider
+- [ ] Tool/function call translation
+- [ ] Request logging & analytics
+
+## License
+
+MIT
