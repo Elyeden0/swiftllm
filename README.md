@@ -25,7 +25,7 @@ Most teams use multiple LLM providers. That means juggling different SDKs, API f
 ### From source
 
 ```bash
-git clone https://github.com/yourusername/swiftllm
+git clone https://github.com/Elyeden0/swiftllm
 cd swiftllm
 cargo build --release
 
