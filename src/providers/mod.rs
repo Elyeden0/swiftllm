@@ -38,6 +38,7 @@ impl std::error::Error for ProviderError {}
 
 /// Trait that all LLM providers must implement
 #[async_trait]
+#[allow(dead_code)]
 pub trait Provider: Send + Sync {
     /// Provider name for logging
     fn name(&self) -> &str;
