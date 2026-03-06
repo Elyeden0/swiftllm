@@ -45,15 +45,57 @@ impl CostTracker {
         let mut pricing = HashMap::new();
 
         // OpenAI pricing (approximate, March 2026)
-        pricing.insert("gpt-4o".into(), ModelPricing { input_per_million: 2.50, output_per_million: 10.00 });
-        pricing.insert("gpt-4o-mini".into(), ModelPricing { input_per_million: 0.15, output_per_million: 0.60 });
-        pricing.insert("gpt-4-turbo".into(), ModelPricing { input_per_million: 10.00, output_per_million: 30.00 });
-        pricing.insert("o3-mini".into(), ModelPricing { input_per_million: 1.10, output_per_million: 4.40 });
+        pricing.insert(
+            "gpt-4o".into(),
+            ModelPricing {
+                input_per_million: 2.50,
+                output_per_million: 10.00,
+            },
+        );
+        pricing.insert(
+            "gpt-4o-mini".into(),
+            ModelPricing {
+                input_per_million: 0.15,
+                output_per_million: 0.60,
+            },
+        );
+        pricing.insert(
+            "gpt-4-turbo".into(),
+            ModelPricing {
+                input_per_million: 10.00,
+                output_per_million: 30.00,
+            },
+        );
+        pricing.insert(
+            "o3-mini".into(),
+            ModelPricing {
+                input_per_million: 1.10,
+                output_per_million: 4.40,
+            },
+        );
 
         // Anthropic pricing
-        pricing.insert("claude-opus-4-6".into(), ModelPricing { input_per_million: 15.00, output_per_million: 75.00 });
-        pricing.insert("claude-sonnet-4-6".into(), ModelPricing { input_per_million: 3.00, output_per_million: 15.00 });
-        pricing.insert("claude-haiku-4-5-20251001".into(), ModelPricing { input_per_million: 0.80, output_per_million: 4.00 });
+        pricing.insert(
+            "claude-opus-4-6".into(),
+            ModelPricing {
+                input_per_million: 15.00,
+                output_per_million: 75.00,
+            },
+        );
+        pricing.insert(
+            "claude-sonnet-4-6".into(),
+            ModelPricing {
+                input_per_million: 3.00,
+                output_per_million: 15.00,
+            },
+        );
+        pricing.insert(
+            "claude-haiku-4-5-20251001".into(),
+            ModelPricing {
+                input_per_million: 0.80,
+                output_per_million: 4.00,
+            },
+        );
 
         Self {
             inner: Mutex::new(CostTrackerInner {

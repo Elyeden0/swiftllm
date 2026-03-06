@@ -119,11 +119,12 @@ impl Config {
         for (name, provider) in &self.providers {
             let matches = match provider.kind {
                 ProviderKind::Openai => {
-                    model.starts_with("gpt-") || model.starts_with("o1") || model.starts_with("o3") || model.starts_with("o4")
+                    model.starts_with("gpt-")
+                        || model.starts_with("o1")
+                        || model.starts_with("o3")
+                        || model.starts_with("o4")
                 }
-                ProviderKind::Anthropic => {
-                    model.starts_with("claude-")
-                }
+                ProviderKind::Anthropic => model.starts_with("claude-"),
                 ProviderKind::Ollama => {
                     model.contains(':') // ollama models typically have "model:tag" format
                 }

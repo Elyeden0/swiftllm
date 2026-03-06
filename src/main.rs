@@ -62,7 +62,10 @@ async fn main() -> anyhow::Result<()> {
     );
     info!("{} provider(s) configured", provider_count);
     if cache_enabled {
-        info!("Cache enabled (max {} entries, {}s TTL)", cache_max, cache_ttl);
+        info!(
+            "Cache enabled (max {} entries, {}s TTL)",
+            cache_max, cache_ttl
+        );
     }
     info!("Dashboard: http://{}/dashboard", addr);
 

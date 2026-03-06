@@ -204,11 +204,7 @@ fn parse_ollama_stream(text: &str, model: &str) -> Vec<Result<StreamChunk, Provi
         match serde_json::from_str::<OllamaResponse>(line) {
             Ok(resp) => {
                 if resp.done {
-                    chunks.push(Ok(StreamChunk::new(
-                        model,
-                        None,
-                        Some("stop".to_string()),
-                    )));
+                    chunks.push(Ok(StreamChunk::new(model, None, Some("stop".to_string()))));
                 } else {
                     chunks.push(Ok(StreamChunk::new(
                         model,

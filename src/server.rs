@@ -43,9 +43,9 @@ impl AppState {
                     provider_config.api_key.clone().unwrap_or_default(),
                     provider_config.base_url.clone(),
                 )),
-                ProviderKind::Ollama => Arc::new(OllamaProvider::new(
-                    provider_config.base_url.clone(),
-                )),
+                ProviderKind::Ollama => {
+                    Arc::new(OllamaProvider::new(provider_config.base_url.clone()))
+                }
             };
             providers.insert(name.clone(), provider);
         }
@@ -177,8 +177,10 @@ async fn chat_completions(
     }
 
     // Find provider for the requested model
-    let (provider_name, _provider_config) =
-        state.config.find_provider_for_model(&request.model).ok_or_else(|| {
+    let (provider_name, _provider_config) = state
+        .config
+        .find_provider_for_model(&request.model)
+        .ok_or_else(|| {
             (
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({
@@ -318,9 +320,7 @@ async fn handle_streaming(
         .unwrap())
 }
 
-fn provider_error_to_response(
-    err: ProviderError,
-) -> (StatusCode, Json<serde_json::Value>) {
+fn provider_error_to_response(err: ProviderError) -> (StatusCode, Json<serde_json::Value>) {
     let (status, message) = match &err {
         ProviderError::Network(msg) => (StatusCode::BAD_GATEWAY, msg.clone()),
         ProviderError::Api { status, message } => (
