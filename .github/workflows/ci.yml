@@ -57,13 +57,13 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact: llm-proxy
+            artifact: swiftllm
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact: llm-proxy
+            artifact: swiftllm
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact: llm-proxy.exe
+            artifact: swiftllm.exe
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -73,5 +73,5 @@ jobs:
       - run: cargo build --release --target ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
         with:
-          name: llm-proxy-${{ matrix.target }}
+          name: swiftllm-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/${{ matrix.artifact }}

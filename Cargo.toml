@@ -1,11 +1,11 @@
 [package]
-name = "llm-proxy"
+name = "swiftllm"
 version = "0.1.0"
 edition = "2021"
 description = "A blazing-fast universal LLM gateway that unifies OpenAI, Anthropic, Ollama and more behind a single API"
 license = "MIT"
-repository = "https://github.com/yourusername/llm-proxy"
-keywords = ["llm", "proxy", "openai", "anthropic", "ollama"]
+repository = "https://github.com/yourusername/swiftllm"
+keywords = ["llm", "proxy", "openai", "anthropic", "gateway"]
 categories = ["web-programming::http-server", "development-tools"]
 
 [dependencies]

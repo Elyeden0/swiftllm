@@ -11,7 +11,7 @@ use std::sync::Arc;
 use tracing::info;
 
 #[derive(Parser)]
-#[command(name = "llm-proxy")]
+#[command(name = "swiftllm")]
 #[command(about = "A blazing-fast universal LLM gateway")]
 #[command(version)]
 struct Cli {
@@ -30,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "llm_proxy=info".into()),
+                .unwrap_or_else(|_| "swiftllm=info".into()),
         )
         .init();
 
@@ -56,7 +56,7 @@ async fn main() -> anyhow::Result<()> {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     info!(
-        "llm-proxy v{} starting on http://{}",
+        "swiftllm v{} starting on http://{}",
         env!("CARGO_PKG_VERSION"),
         addr
     );

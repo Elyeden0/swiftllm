@@ -1,18 +1,18 @@
-# llm-proxy
+# swiftllm
 
 A blazing-fast universal LLM gateway written in Rust. Route requests to OpenAI, Anthropic, Ollama, and more through a single OpenAI-compatible API.
 
 ```
-┌──────────────┐       ┌─────────────┐       ┌──────────┐
-│  Your App    │──────▶│  llm-proxy  │──────▶│  OpenAI  │
-│  (any SDK)   │       │  :8080      │──────▶│ Anthropic│
-└──────────────┘       └─────────────┘──────▶│  Ollama  │
-                                              └──────────┘
+┌──────────────┐       ┌───────────┐       ┌──────────┐
+│  Your App    │──────▶│ swiftllm  │──────▶│  OpenAI  │
+│  (any SDK)   │       │  :8080    │──────▶│ Anthropic│
+└──────────────┘       └───────────┘──────▶│  Ollama  │
+                                            └──────────┘
 ```
 
 ## Why?
 
-Most teams use multiple LLM providers. That means juggling different SDKs, API formats, and billing dashboards. **llm-proxy** gives you:
+Most teams use multiple LLM providers. That means juggling different SDKs, API formats, and billing dashboards. **swiftllm** gives you:
 
 - **One endpoint** — drop-in replacement for the OpenAI API. Use any SDK or tool that speaks OpenAI format.
 - **Automatic routing** — requests route to the right provider based on model name (`gpt-4o` → OpenAI, `claude-sonnet-4-6` → Anthropic, `llama3:latest` → Ollama).
@@ -25,15 +25,15 @@ Most teams use multiple LLM providers. That means juggling different SDKs, API f
 ### From source
 
 ```bash
-git clone https://github.com/yourusername/llm-proxy
-cd llm-proxy
+git clone https://github.com/yourusername/swiftllm
+cd swiftllm
 cargo build --release
 
 # Copy and edit the config
 cp config.example.toml config.toml
 # Add your API keys...
 
-./target/release/llm-proxy --config config.toml
+./target/release/swiftllm --config config.toml
 ```
 
 ### Usage
@@ -119,14 +119,16 @@ Models are routed to providers in this order:
 | `POST /v1/chat/completions` | Chat completions (streaming & non-streaming) |
 | `GET /v1/models` | List all configured models |
 | `GET /health` | Health check |
+| `GET /api/stats` | Usage stats, cost tracking, cache metrics |
+| `GET /dashboard` | Live web dashboard |
 
 ## Roadmap
 
-- [ ] Response caching (LRU with configurable TTL)
-- [ ] Cost tracking & token counting dashboard
+- [x] Response caching (LRU with configurable TTL)
+- [x] Cost tracking & token counting dashboard
+- [x] Automatic failover with priority chains
+- [x] Embedded web dashboard
 - [ ] Rate limiting per provider
-- [ ] Automatic failover with priority chains
-- [ ] Embedded web dashboard
 - [ ] Google Gemini provider
 - [ ] Tool/function call translation
 - [ ] Request logging & analytics
