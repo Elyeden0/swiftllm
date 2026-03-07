@@ -17,6 +17,21 @@ enabled = true
 max_size = 1000       # max cached responses
 ttl_seconds = 300     # cache entry lifetime
 
+# Rate limiting (per provider, token bucket algorithm)
+[rate_limit]
+enabled = true
+max_requests = 100    # default limit for all providers
+window_seconds = 60   # time window
+
+# Optional per-provider overrides
+[rate_limit.providers.openai]
+max_requests = 200
+window_seconds = 60
+
+[rate_limit.providers.anthropic]
+max_requests = 50
+window_seconds = 60
+
 # ── Providers ──
 
 [providers.openai]

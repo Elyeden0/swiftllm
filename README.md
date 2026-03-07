@@ -128,7 +128,7 @@ Models are routed to providers in this order:
 - [x] Cost tracking & token counting dashboard
 - [x] Automatic failover with priority chains
 - [x] Embedded web dashboard
-- [ ] Rate limiting per provider
+- [x] Rate limiting per provider
 - [ ] Google Gemini provider
 - [ ] Tool/function call translation
 - [ ] Request logging & analytics

@@ -17,6 +17,9 @@ pub struct Config {
 
     #[serde(default)]
     pub cache: CacheConfig,
+
+    #[serde(default)]
+    pub rate_limit: RateLimitConfig,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -61,6 +64,47 @@ pub struct CacheConfig {
     pub max_size: usize,
     #[serde(default = "default_cache_ttl")]
     pub ttl_seconds: u64,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct RateLimitConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    /// Default requests per window (applies to all providers without specific config)
+    #[serde(default = "default_rate_limit_max")]
+    pub max_requests: u64,
+    /// Window duration in seconds
+    #[serde(default = "default_rate_limit_window")]
+    pub window_seconds: u64,
+    /// Per-provider overrides
+    #[serde(default)]
+    pub providers: HashMap<String, ProviderRateLimit>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct ProviderRateLimit {
+    pub max_requests: u64,
+    #[serde(default = "default_rate_limit_window")]
+    pub window_seconds: u64,
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_requests: 100,
+            window_seconds: 60,
+            providers: HashMap::new(),
+        }
+    }
+}
+
+fn default_rate_limit_max() -> u64 {
+    100
+}
+
+fn default_rate_limit_window() -> u64 {
+    60
 }
 
 impl Default for CacheConfig {

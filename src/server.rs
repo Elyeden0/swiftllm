@@ -15,6 +15,7 @@ use tracing::{error, info, warn};
 use crate::config::{Config, ProviderKind};
 use crate::middleware::cache::ResponseCache;
 use crate::middleware::cost::CostTracker;
+use crate::middleware::rate_limit::RateLimiter;
 use crate::providers::anthropic::AnthropicProvider;
 use crate::providers::ollama::OllamaProvider;
 use crate::providers::openai::OpenAiProvider;
@@ -27,6 +28,7 @@ pub struct AppState {
     pub providers: HashMap<String, Arc<dyn Provider>>,
     pub cache: Option<ResponseCache>,
     pub cost_tracker: CostTracker,
+    pub rate_limiter: Option<RateLimiter>,
 }
 
 impl AppState {
@@ -59,11 +61,34 @@ impl AppState {
             None
         };
 
+        let rate_limiter = if config.rate_limit.enabled {
+            let default_limit = Some(crate::middleware::rate_limit::RateLimitConfig {
+                max_requests: config.rate_limit.max_requests,
+                window: std::time::Duration::from_secs(config.rate_limit.window_seconds),
+            });
+
+            let mut provider_limits = HashMap::new();
+            for (name, limit) in &config.rate_limit.providers {
+                provider_limits.insert(
+                    name.clone(),
+                    crate::middleware::rate_limit::RateLimitConfig {
+                        max_requests: limit.max_requests,
+                        window: std::time::Duration::from_secs(limit.window_seconds),
+                    },
+                );
+            }
+
+            Some(RateLimiter::new(provider_limits, default_limit))
+        } else {
+            None
+        };
+
         Self {
             config,
             providers,
             cache,
             cost_tracker: CostTracker::new(),
+            rate_limiter,
         }
     }
 
@@ -106,6 +131,10 @@ async fn get_stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 
     if let Some(cache) = &state.cache {
         stats["cache"] = serde_json::to_value(cache.stats()).unwrap();
+    }
+
+    if let Some(limiter) = &state.rate_limiter {
+        stats["rate_limits"] = serde_json::to_value(limiter.stats()).unwrap();
     }
 
     Json(stats)
@@ -165,18 +194,7 @@ async fn chat_completions(
         }
     }
 
-    // Check cache for non-streaming requests
-    if !request.is_streaming() {
-        if let Some(cache) = &state.cache {
-            if let Some(cached) = cache.get(&request) {
-                info!(model = %request.model, "Cache hit");
-                state.cost_tracker.record_cache_hit();
-                return Ok(Json(cached).into_response());
-            }
-        }
-    }
-
-    // Find provider for the requested model
+    // Find provider for the requested model (needed for rate limit check)
     let (provider_name, _provider_config) = state
         .config
         .find_provider_for_model(&request.model)
@@ -191,6 +209,41 @@ async fn chat_completions(
                 })),
             )
         })?;
+
+    // Rate limit check (per provider)
+    if let Some(limiter) = &state.rate_limiter {
+        if let Err(retry_after) = limiter.check(provider_name) {
+            warn!(
+                provider = provider_name.as_str(),
+                retry_after = format!("{:.1}s", retry_after).as_str(),
+                "Rate limited"
+            );
+            return Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(serde_json::json!({
+                    "error": {
+                        "message": format!(
+                            "Rate limit exceeded for provider '{}'. Retry after {:.1}s",
+                            provider_name, retry_after
+                        ),
+                        "type": "rate_limit_error",
+                        "retry_after": retry_after,
+                    }
+                })),
+            ));
+        }
+    }
+
+    // Check cache for non-streaming requests
+    if !request.is_streaming() {
+        if let Some(cache) = &state.cache {
+            if let Some(cached) = cache.get(&request) {
+                info!(model = %request.model, "Cache hit");
+                state.cost_tracker.record_cache_hit();
+                return Ok(Json(cached).into_response());
+            }
+        }
+    }
 
     let provider = state.providers.get(provider_name).ok_or_else(|| {
         (
