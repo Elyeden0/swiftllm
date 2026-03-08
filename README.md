@@ -22,6 +22,31 @@ Most teams use multiple LLM providers. That means juggling different SDKs, API f
 
 ## Quick Start
 
+### Download pre-built binary
+
+Grab the latest release for your platform from the [Releases page](https://github.com/Elyeden0/swiftllm/releases):
+
+```bash
+# Linux
+curl -L https://github.com/Elyeden0/swiftllm/releases/latest/download/swiftllm-linux-amd64.tar.gz | tar xz
+chmod +x swiftllm
+
+# macOS (Apple Silicon)
+curl -L https://github.com/Elyeden0/swiftllm/releases/latest/download/swiftllm-macos-arm64.tar.gz | tar xz
+chmod +x swiftllm
+```
+
+Then configure and run:
+
+```bash
+# Download the example config
+curl -O https://raw.githubusercontent.com/Elyeden0/swiftllm/main/config.example.toml
+cp config.example.toml config.toml
+# Add your API keys...
+
+./swiftllm --config config.toml
+```
+
 ### From source
 
 ```bash
@@ -29,7 +54,6 @@ git clone https://github.com/Elyeden0/swiftllm
 cd swiftllm
 cargo build --release
 
-# Copy and edit the config
 cp config.example.toml config.toml
 # Add your API keys...
 
