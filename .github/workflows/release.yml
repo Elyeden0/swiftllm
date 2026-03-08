@@ -45,9 +45,9 @@ jobs:
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          cd target/${{ matrix.target }}/release
-          7z a ../../../${{ matrix.archive }} ${{ matrix.artifact }}
+          Compress-Archive -Path "target/${{ matrix.target }}/release/${{ matrix.artifact }}" -DestinationPath "${{ matrix.archive }}"
 
       - uses: actions/upload-artifact@v4
         with:
