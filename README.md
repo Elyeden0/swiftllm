@@ -1,12 +1,13 @@
 # swiftllm
 
-A blazing-fast universal LLM gateway written in Rust. Route requests to OpenAI, Anthropic, Ollama, and more through a single OpenAI-compatible API.
+A blazing-fast universal LLM gateway written in Rust. Route requests to OpenAI, Anthropic, Google Gemini, Ollama, and more through a single OpenAI-compatible API.
 
 ```
 ┌──────────────┐       ┌───────────┐       ┌──────────┐
 │  Your App    │──────▶│ swiftllm  │──────▶│  OpenAI  │
 │  (any SDK)   │       │  :8080    │──────▶│ Anthropic│
-└──────────────┘       └───────────┘──────▶│  Ollama  │
+└──────────────┘       └───────────┘──────▶│  Gemini  │
+                                    ──────▶│  Ollama  │
                                            └──────────┘
 ```
 
@@ -15,7 +16,7 @@ A blazing-fast universal LLM gateway written in Rust. Route requests to OpenAI, 
 Most teams use multiple LLM providers. That means juggling different SDKs, API formats, and billing dashboards. **swiftllm** gives you:
 
 - **One endpoint** — drop-in replacement for the OpenAI API. Use any SDK or tool that speaks OpenAI format.
-- **Automatic routing** — requests route to the right provider based on model name (`gpt-4o` → OpenAI, `claude-sonnet-4-6` → Anthropic, `llama3:latest` → Ollama).
+- **Automatic routing** — requests route to the right provider based on model name (`gpt-4o` → OpenAI, `claude-sonnet-4-6` → Anthropic, `gemini-2.0-flash` → Google, `llama3:latest` → Ollama).
 - **Streaming support** — full SSE streaming with format translation across all providers.
 - **Single binary** — no runtime dependencies, no Docker required. Just download and run.
 - **~1ms overhead** — built in Rust with async I/O. Adds negligible latency.
@@ -122,6 +123,11 @@ kind = "anthropic"
 api_key = "sk-ant-..."
 models = ["claude-sonnet-4-6", "claude-opus-4-6"]
 
+[providers.gemini]
+kind = "gemini"
+api_key = "your-gemini-key"
+models = ["gemini-2.0-flash", "gemini-2.0-pro"]
+
 [providers.ollama]
 kind = "ollama"
 base_url = "http://localhost:11434"
@@ -133,7 +139,7 @@ models = ["llama3:latest", "mistral:latest"]
 Models are routed to providers in this order:
 
 1. **Exact match** — if a model name appears in a provider's `models` list
-2. **Prefix match** — `gpt-*` → OpenAI, `claude-*` → Anthropic, `model:tag` → Ollama
+2. **Prefix match** — `gpt-*` → OpenAI, `claude-*` → Anthropic, `gemini-*` → Google, `model:tag` → Ollama
 3. **Default provider** — the `routing.default_provider` fallback
 
 ## API Endpoints
@@ -153,7 +159,7 @@ Models are routed to providers in this order:
 - [x] Automatic failover with priority chains
 - [x] Embedded web dashboard
 - [x] Rate limiting per provider
-- [ ] Google Gemini provider
+- [x] Google Gemini provider
 - [ ] Tool/function call translation
 - [ ] Request logging & analytics
 

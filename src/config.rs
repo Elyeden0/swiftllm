@@ -48,6 +48,7 @@ pub enum ProviderKind {
     Openai,
     Anthropic,
     Ollama,
+    Gemini,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -169,6 +170,7 @@ impl Config {
                         || model.starts_with("o4")
                 }
                 ProviderKind::Anthropic => model.starts_with("claude-"),
+                ProviderKind::Gemini => model.starts_with("gemini-"),
                 ProviderKind::Ollama => {
                     model.contains(':') // ollama models typically have "model:tag" format
                 }

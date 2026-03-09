@@ -97,6 +97,36 @@ impl CostTracker {
             },
         );
 
+        // Google Gemini pricing
+        pricing.insert(
+            "gemini-2.0-flash".into(),
+            ModelPricing {
+                input_per_million: 0.10,
+                output_per_million: 0.40,
+            },
+        );
+        pricing.insert(
+            "gemini-2.0-pro".into(),
+            ModelPricing {
+                input_per_million: 1.25,
+                output_per_million: 10.00,
+            },
+        );
+        pricing.insert(
+            "gemini-1.5-pro".into(),
+            ModelPricing {
+                input_per_million: 1.25,
+                output_per_million: 5.00,
+            },
+        );
+        pricing.insert(
+            "gemini-1.5-flash".into(),
+            ModelPricing {
+                input_per_million: 0.075,
+                output_per_million: 0.30,
+            },
+        );
+
         Self {
             inner: Mutex::new(CostTrackerInner {
                 stats: HashMap::new(),

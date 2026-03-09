@@ -34,6 +34,17 @@ window_seconds = 60
 
 # ── Providers ──
 
+[providers.gemini]
+kind = "gemini"
+api_key = "your-gemini-api-key"
+priority = 3
+models = [
+    "gemini-2.0-flash",
+    "gemini-2.0-pro",
+    "gemini-1.5-pro",
+    "gemini-1.5-flash",
+]
+
 [providers.openai]
 kind = "openai"
 api_key = "sk-your-openai-key"
