@@ -124,6 +124,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/health", get(health_check))
         .route("/api/stats", get(get_stats))
         .route("/dashboard", get(dashboard))
+        .route("/dashboard/styles.css", get(dashboard_css))
+        .route("/dashboard/app.js", get(dashboard_js))
         .with_state(state)
 }
 
@@ -150,9 +152,25 @@ async fn get_stats(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     Json(stats)
 }
 
-/// Embedded dashboard
+/// Embedded dashboard HTML
 async fn dashboard() -> impl IntoResponse {
     Html(include_str!("../dashboard/index.html"))
+}
+
+/// Embedded dashboard CSS
+async fn dashboard_css() -> impl IntoResponse {
+    Response::builder()
+        .header("Content-Type", "text/css")
+        .body(include_str!("../dashboard/styles.css").to_string())
+        .unwrap()
+}
+
+/// Embedded dashboard JS
+async fn dashboard_js() -> impl IntoResponse {
+    Response::builder()
+        .header("Content-Type", "application/javascript")
+        .body(include_str!("../dashboard/app.js").to_string())
+        .unwrap()
 }
 
 /// List available models (aggregated from all providers)
