@@ -97,6 +97,43 @@ impl CostTracker {
             },
         );
 
+        // OpenAI newer models
+        pricing.insert(
+            "gpt-4.1".into(),
+            ModelPricing {
+                input_per_million: 2.00,
+                output_per_million: 8.00,
+            },
+        );
+        pricing.insert(
+            "gpt-4.1-mini".into(),
+            ModelPricing {
+                input_per_million: 0.40,
+                output_per_million: 1.60,
+            },
+        );
+        pricing.insert(
+            "gpt-4.1-nano".into(),
+            ModelPricing {
+                input_per_million: 0.10,
+                output_per_million: 0.40,
+            },
+        );
+        pricing.insert(
+            "o3".into(),
+            ModelPricing {
+                input_per_million: 2.00,
+                output_per_million: 8.00,
+            },
+        );
+        pricing.insert(
+            "o4-mini".into(),
+            ModelPricing {
+                input_per_million: 1.10,
+                output_per_million: 4.40,
+            },
+        );
+
         // Google Gemini pricing
         pricing.insert(
             "gemini-2.0-flash".into(),
@@ -124,6 +161,50 @@ impl CostTracker {
             ModelPricing {
                 input_per_million: 0.075,
                 output_per_million: 0.30,
+            },
+        );
+
+        // Mistral pricing
+        pricing.insert(
+            "mistral-large-latest".into(),
+            ModelPricing {
+                input_per_million: 2.00,
+                output_per_million: 6.00,
+            },
+        );
+        pricing.insert(
+            "mistral-medium-latest".into(),
+            ModelPricing {
+                input_per_million: 2.70,
+                output_per_million: 8.10,
+            },
+        );
+        pricing.insert(
+            "mistral-small-latest".into(),
+            ModelPricing {
+                input_per_million: 0.20,
+                output_per_million: 0.60,
+            },
+        );
+        pricing.insert(
+            "codestral-latest".into(),
+            ModelPricing {
+                input_per_million: 0.30,
+                output_per_million: 0.90,
+            },
+        );
+        pricing.insert(
+            "ministral-8b-latest".into(),
+            ModelPricing {
+                input_per_million: 0.10,
+                output_per_million: 0.10,
+            },
+        );
+        pricing.insert(
+            "pixtral-large-latest".into(),
+            ModelPricing {
+                input_per_million: 2.00,
+                output_per_million: 6.00,
             },
         );
 

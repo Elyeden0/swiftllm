@@ -49,6 +49,7 @@ pub enum ProviderKind {
     Anthropic,
     Ollama,
     Gemini,
+    Mistral,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -168,9 +169,17 @@ impl Config {
                         || model.starts_with("o1")
                         || model.starts_with("o3")
                         || model.starts_with("o4")
+                        || model.starts_with("chatgpt-")
                 }
                 ProviderKind::Anthropic => model.starts_with("claude-"),
                 ProviderKind::Gemini => model.starts_with("gemini-"),
+                ProviderKind::Mistral => {
+                    model.starts_with("mistral-")
+                        || model.starts_with("codestral")
+                        || model.starts_with("pixtral")
+                        || model.starts_with("ministral")
+                        || model.starts_with("open-mistral")
+                }
                 ProviderKind::Ollama => {
                     model.contains(':') // ollama models typically have "model:tag" format
                 }

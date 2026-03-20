@@ -18,6 +18,7 @@ use crate::middleware::cost::CostTracker;
 use crate::middleware::rate_limit::RateLimiter;
 use crate::providers::anthropic::AnthropicProvider;
 use crate::providers::gemini::GeminiProvider;
+use crate::providers::mistral::MistralProvider;
 use crate::providers::ollama::OllamaProvider;
 use crate::providers::openai::OpenAiProvider;
 use crate::providers::types::ChatRequest;
@@ -47,6 +48,10 @@ impl AppState {
                     provider_config.base_url.clone(),
                 )),
                 ProviderKind::Gemini => Arc::new(GeminiProvider::new(
+                    provider_config.api_key.clone().unwrap_or_default(),
+                    provider_config.base_url.clone(),
+                )),
+                ProviderKind::Mistral => Arc::new(MistralProvider::new(
                     provider_config.api_key.clone().unwrap_or_default(),
                     provider_config.base_url.clone(),
                 )),

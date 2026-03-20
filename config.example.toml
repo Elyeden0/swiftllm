@@ -52,8 +52,12 @@ priority = 1
 models = [
     "gpt-4o",
     "gpt-4o-mini",
-    "gpt-4-turbo",
+    "gpt-4.1",
+    "gpt-4.1-mini",
+    "gpt-4.1-nano",
+    "o3",
     "o3-mini",
+    "o4-mini",
 ]
 
 [providers.anthropic]
@@ -64,6 +68,18 @@ models = [
     "claude-sonnet-4-6",
     "claude-opus-4-6",
     "claude-haiku-4-5-20251001",
+]
+
+[providers.mistral]
+kind = "mistral"
+api_key = "your-mistral-api-key"
+priority = 4
+models = [
+    "mistral-large-latest",
+    "mistral-small-latest",
+    "codestral-latest",
+    "ministral-8b-latest",
+    "pixtral-large-latest",
 ]
 
 [providers.ollama]
