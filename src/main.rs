@@ -15,13 +15,42 @@ use tracing::info;
 #[command(about = "A blazing-fast universal LLM gateway")]
 #[command(version)]
 struct Cli {
-    /// Path to config file
-    #[arg(short, long, default_value = "config.toml")]
-    config: PathBuf,
+    /// Path to .env file (default: looks next to the executable, then current directory)
+    #[arg(short = 'e', long = "env")]
+    env_file: Option<PathBuf>,
 
-    /// Port to listen on (overrides config)
+    /// Port to listen on (overrides .env)
     #[arg(short, long)]
     port: Option<u16>,
+}
+
+/// Find the .env file path, searching next to the executable first, then the current directory.
+fn find_env_file(cli_path: Option<&PathBuf>) -> Option<PathBuf> {
+    // 1. Explicit CLI argument takes priority
+    if let Some(path) = cli_path {
+        if path.exists() {
+            return Some(path.clone());
+        }
+        return None;
+    }
+
+    // 2. Look next to the executable (the primary expected location)
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let env_path = exe_dir.join(".env");
+            if env_path.exists() {
+                return Some(env_path);
+            }
+        }
+    }
+
+    // 3. Fall back to current working directory
+    let cwd_env = PathBuf::from(".env");
+    if cwd_env.exists() {
+        return Some(cwd_env);
+    }
+
+    None
 }
 
 #[tokio::main]
@@ -36,8 +65,40 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
 
-    // Load config
-    let mut config = config::Config::load(&cli.config)?;
+    // Find and load the .env file
+    let env_path = find_env_file(cli.env_file.as_ref());
+
+    match env_path {
+        Some(ref path) => {
+            dotenvy::from_path(path).map_err(|e| {
+                anyhow::anyhow!("Failed to load .env file at {}: {}", path.display(), e)
+            })?;
+            info!("Loaded .env from {}", path.display());
+        }
+        None => {
+            let exe_dir = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|d| d.display().to_string()))
+                .unwrap_or_else(|| "unknown".to_string());
+
+            eprintln!();
+            eprintln!("  ERROR: No .env file found!");
+            eprintln!();
+            eprintln!("  swiftllm requires a .env file to run. Searched in:");
+            eprintln!("    1. Next to the executable: {}/.env", exe_dir);
+            eprintln!("    2. Current directory: {}/.env", std::env::current_dir()
+                .map(|d| d.display().to_string())
+                .unwrap_or_else(|_| ".".to_string()));
+            eprintln!();
+            eprintln!("  Create a .env file with your provider API keys.");
+            eprintln!("  See .env.example for a template.");
+            eprintln!();
+            std::process::exit(1);
+        }
+    }
+
+    // Load config from environment variables
+    let mut config = config::Config::load_from_env()?;
 
     // CLI port overrides config port
     if let Some(port) = cli.port {

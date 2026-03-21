@@ -1,49 +1,31 @@
-use serde::Deserialize;
 use std::collections::HashMap;
-use std::path::Path;
+use std::env;
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct Config {
-    #[serde(default = "default_port")]
     pub port: u16,
-
-    #[serde(default)]
     pub auth: AuthConfig,
-
     pub providers: HashMap<String, ProviderConfig>,
-
-    #[serde(default)]
     pub routing: RoutingConfig,
-
-    #[serde(default)]
     pub cache: CacheConfig,
-
-    #[serde(default)]
     pub rate_limit: RateLimitConfig,
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct AuthConfig {
-    /// API keys that clients must provide to use the proxy
-    #[serde(default)]
     pub api_keys: Vec<String>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct ProviderConfig {
     pub kind: ProviderKind,
     pub api_key: Option<String>,
-    #[serde(default = "default_base_url_none")]
     pub base_url: Option<String>,
-    #[serde(default)]
     pub models: Vec<String>,
-    /// Priority for failover (lower = higher priority)
-    #[serde(default = "default_priority")]
     pub priority: u32,
 }
 
-#[derive(Debug, Deserialize, Clone, PartialEq)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ProviderKind {
     Openai,
     Anthropic,
@@ -52,42 +34,34 @@ pub enum ProviderKind {
     Mistral,
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct RoutingConfig {
-    /// Fallback provider name if model not found in any provider's model list
     pub default_provider: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct CacheConfig {
-    #[serde(default = "default_cache_enabled")]
     pub enabled: bool,
-    #[serde(default = "default_cache_max_size")]
     pub max_size: usize,
-    #[serde(default = "default_cache_ttl")]
     pub ttl_seconds: u64,
 }
 
-#[derive(Debug, Deserialize, Clone)]
-pub struct RateLimitConfig {
-    #[serde(default)]
-    pub enabled: bool,
-    /// Default requests per window (applies to all providers without specific config)
-    #[serde(default = "default_rate_limit_max")]
-    pub max_requests: u64,
-    /// Window duration in seconds
-    #[serde(default = "default_rate_limit_window")]
-    pub window_seconds: u64,
-    /// Per-provider overrides
-    #[serde(default)]
-    pub providers: HashMap<String, ProviderRateLimit>,
+impl Default for CacheConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_size: 1000,
+            ttl_seconds: 300,
+        }
+    }
 }
 
-#[derive(Debug, Deserialize, Clone)]
-pub struct ProviderRateLimit {
+#[derive(Debug, Clone)]
+pub struct RateLimitConfig {
+    pub enabled: bool,
     pub max_requests: u64,
-    #[serde(default = "default_rate_limit_window")]
     pub window_seconds: u64,
+    pub providers: HashMap<String, ProviderRateLimit>,
 }
 
 impl Default for RateLimitConfig {
@@ -101,55 +75,167 @@ impl Default for RateLimitConfig {
     }
 }
 
-fn default_rate_limit_max() -> u64 {
-    100
+#[derive(Debug, Clone)]
+pub struct ProviderRateLimit {
+    pub max_requests: u64,
+    pub window_seconds: u64,
 }
 
-fn default_rate_limit_window() -> u64 {
-    60
-}
+/// Known provider names and their env var prefixes
+const PROVIDER_NAMES: &[(&str, &str)] = &[
+    ("openai", "OPENAI"),
+    ("anthropic", "ANTHROPIC"),
+    ("gemini", "GEMINI"),
+    ("mistral", "MISTRAL"),
+    ("ollama", "OLLAMA"),
+];
 
-impl Default for CacheConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            max_size: 1000,
-            ttl_seconds: 300,
-        }
+fn parse_provider_kind(s: &str) -> Option<ProviderKind> {
+    match s.to_lowercase().as_str() {
+        "openai" => Some(ProviderKind::Openai),
+        "anthropic" => Some(ProviderKind::Anthropic),
+        "gemini" => Some(ProviderKind::Gemini),
+        "mistral" => Some(ProviderKind::Mistral),
+        "ollama" => Some(ProviderKind::Ollama),
+        _ => None,
     }
 }
 
-fn default_cache_enabled() -> bool {
-    true
-}
-
-fn default_cache_max_size() -> usize {
-    1000
-}
-
-fn default_cache_ttl() -> u64 {
-    300
-}
-
-fn default_port() -> u16 {
-    8080
-}
-
-fn default_base_url_none() -> Option<String> {
-    None
-}
-
-fn default_priority() -> u32 {
-    100
-}
-
 impl Config {
-    pub fn load(path: &Path) -> anyhow::Result<Self> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| anyhow::anyhow!("Failed to read config file {}: {}", path.display(), e))?;
-        let config: Config = toml::from_str(&content)
-            .map_err(|e| anyhow::anyhow!("Failed to parse config: {}", e))?;
-        Ok(config)
+    /// Load configuration from environment variables (previously loaded from .env file)
+    pub fn load_from_env() -> anyhow::Result<Self> {
+        let port = env::var("PORT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(8080);
+
+        let auth = AuthConfig {
+            api_keys: env::var("AUTH_API_KEYS")
+                .ok()
+                .map(|v| {
+                    v.split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default(),
+        };
+
+        let routing = RoutingConfig {
+            default_provider: env::var("DEFAULT_PROVIDER").ok().filter(|s| !s.is_empty()),
+        };
+
+        let cache = CacheConfig {
+            enabled: env::var("CACHE_ENABLED")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(true),
+            max_size: env::var("CACHE_MAX_SIZE")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(1000),
+            ttl_seconds: env::var("CACHE_TTL_SECONDS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(300),
+        };
+
+        let mut rate_limit = RateLimitConfig {
+            enabled: env::var("RATE_LIMIT_ENABLED")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(false),
+            max_requests: env::var("RATE_LIMIT_MAX_REQUESTS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(100),
+            window_seconds: env::var("RATE_LIMIT_WINDOW_SECONDS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(60),
+            providers: HashMap::new(),
+        };
+
+        // Parse per-provider rate limits: RATE_LIMIT_<PREFIX>_MAX_REQUESTS / _WINDOW_SECONDS
+        for &(_name, prefix) in PROVIDER_NAMES {
+            let max_key = format!("RATE_LIMIT_{}_MAX_REQUESTS", prefix);
+            let window_key = format!("RATE_LIMIT_{}_WINDOW_SECONDS", prefix);
+            if let Ok(max_str) = env::var(&max_key) {
+                if let Ok(max_requests) = max_str.parse::<u64>() {
+                    let window_seconds = env::var(&window_key)
+                        .ok()
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(60);
+                    rate_limit.providers.insert(
+                        _name.to_string(),
+                        ProviderRateLimit {
+                            max_requests,
+                            window_seconds,
+                        },
+                    );
+                }
+            }
+        }
+
+        // Parse providers from environment
+        let mut providers = HashMap::new();
+
+        for &(name, prefix) in PROVIDER_NAMES {
+            // A provider is configured if it has an API key set (or for ollama, a BASE_URL)
+            let api_key = env::var(format!("{}_API_KEY", prefix)).ok().filter(|s| !s.is_empty());
+            let base_url = env::var(format!("{}_BASE_URL", prefix)).ok().filter(|s| !s.is_empty());
+
+            // Ollama doesn't need an API key, just check for base_url or models
+            let models_str = env::var(format!("{}_MODELS", prefix)).ok().filter(|s| !s.is_empty());
+            let has_config = api_key.is_some() || (name == "ollama" && (base_url.is_some() || models_str.is_some()));
+
+            if !has_config {
+                continue;
+            }
+
+            let models = models_str
+                .map(|v| {
+                    v.split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            let priority = env::var(format!("{}_PRIORITY", prefix))
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(100);
+
+            let kind = parse_provider_kind(name).unwrap();
+
+            providers.insert(
+                name.to_string(),
+                ProviderConfig {
+                    kind,
+                    api_key,
+                    base_url,
+                    models,
+                    priority,
+                },
+            );
+        }
+
+        if providers.is_empty() {
+            anyhow::bail!(
+                "No providers configured. Set at least one provider's API key in your .env file.\n\
+                 Example: OPENAI_API_KEY=sk-..."
+            );
+        }
+
+        Ok(Config {
+            port,
+            auth,
+            providers,
+            routing,
+            cache,
+            rate_limit,
+        })
     }
 
     /// Find which provider should handle a given model name
@@ -161,7 +247,7 @@ impl Config {
             }
         }
 
-        // Second: prefix-based matching (e.g., "claude-" → anthropic, "gpt-" → openai)
+        // Second: prefix-based matching (e.g., "claude-" -> anthropic, "gpt-" -> openai)
         for (name, provider) in &self.providers {
             let matches = match provider.kind {
                 ProviderKind::Openai => {
