@@ -36,18 +36,22 @@ chmod +x swiftllm
 # macOS (Apple Silicon)
 curl -L https://github.com/Elyeden0/swiftllm/releases/latest/download/swiftllm-macos-arm64.tar.gz | tar xz
 chmod +x swiftllm
+
+# Windows
+# Download swiftllm-windows-amd64.zip from the releases page and extract it
 ```
 
 Then configure and run:
 
 ```bash
-# Download the example config
-curl -O https://raw.githubusercontent.com/Elyeden0/swiftllm/main/config.example.toml
-cp config.example.toml config.toml
-# Add your API keys...
+# Copy the example .env and add your API keys
+cp .env.example .env
+# Edit .env with your API keys...
 
-./swiftllm --config config.toml
+./swiftllm
 ```
+
+The `.env` file must be placed in the same directory as the executable. swiftllm will refuse to start without it.
 
 ### From source
 
@@ -56,10 +60,10 @@ git clone https://github.com/Elyeden0/swiftllm
 cd swiftllm
 cargo build --release
 
-cp config.example.toml config.toml
-# Add your API keys...
+cp .env.example .env
+# Edit .env with your API keys...
 
-./target/release/swiftllm --config config.toml
+./target/release/swiftllm
 ```
 
 ### Usage
@@ -106,47 +110,43 @@ response = client.chat.completions.create(
 
 ## Configuration
 
-See [`config.example.toml`](config.example.toml) for all options.
+All configuration is done through a `.env` file. See [`.env.example`](.env.example) for all options.
 
-```toml
-port = 8080
+```bash
+PORT=8080
+AUTH_API_KEYS=your-proxy-api-key
+DEFAULT_PROVIDER=openai
 
-[auth]
-api_keys = ["your-proxy-api-key"]
+OPENAI_API_KEY=sk-...
+OPENAI_MODELS=gpt-4o,gpt-4.1,o3,o4-mini
+OPENAI_PRIORITY=1
 
-[providers.openai]
-kind = "openai"
-api_key = "sk-..."
-models = ["gpt-4o", "gpt-4.1", "o3", "o4-mini"]
+ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_MODELS=claude-sonnet-4-6,claude-opus-4-6
+ANTHROPIC_PRIORITY=2
 
-[providers.anthropic]
-kind = "anthropic"
-api_key = "sk-ant-..."
-models = ["claude-sonnet-4-6", "claude-opus-4-6"]
+GEMINI_API_KEY=your-gemini-key
+GEMINI_MODELS=gemini-2.0-flash,gemini-2.0-pro
+GEMINI_PRIORITY=3
 
-[providers.gemini]
-kind = "gemini"
-api_key = "your-gemini-key"
-models = ["gemini-2.0-flash", "gemini-2.0-pro"]
+MISTRAL_API_KEY=your-mistral-key
+MISTRAL_MODELS=mistral-large-latest,codestral-latest
+MISTRAL_PRIORITY=4
 
-[providers.mistral]
-kind = "mistral"
-api_key = "your-mistral-key"
-models = ["mistral-large-latest", "codestral-latest"]
-
-[providers.ollama]
-kind = "ollama"
-base_url = "http://localhost:11434"
-models = ["llama3:latest", "mistral:latest"]
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODELS=llama3:latest,mistral:latest
+OLLAMA_PRIORITY=10
 ```
+
+You can also pass the path explicitly: `swiftllm --env /path/to/.env`
 
 ### Model routing
 
 Models are routed to providers in this order:
 
-1. **Exact match** — if a model name appears in a provider's `models` list
+1. **Exact match** — if a model name appears in a provider's `MODELS` list
 2. **Prefix match** — `gpt-*` → OpenAI, `claude-*` → Anthropic, `gemini-*` → Google, `mistral-*` → Mistral, `model:tag` → Ollama
-3. **Default provider** — the `routing.default_provider` fallback
+3. **Default provider** — the `DEFAULT_PROVIDER` fallback
 
 ## API Endpoints
 
