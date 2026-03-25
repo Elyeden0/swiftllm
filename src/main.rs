@@ -86,9 +86,12 @@ async fn main() -> anyhow::Result<()> {
             eprintln!();
             eprintln!("  swiftllm requires a .env file to run. Searched in:");
             eprintln!("    1. Next to the executable: {}/.env", exe_dir);
-            eprintln!("    2. Current directory: {}/.env", std::env::current_dir()
-                .map(|d| d.display().to_string())
-                .unwrap_or_else(|_| ".".to_string()));
+            eprintln!(
+                "    2. Current directory: {}/.env",
+                std::env::current_dir()
+                    .map(|d| d.display().to_string())
+                    .unwrap_or_else(|_| ".".to_string())
+            );
             eprintln!();
             eprintln!("  Create a .env file with your provider API keys.");
             eprintln!("  See .env.example for a template.");

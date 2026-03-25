@@ -182,12 +182,19 @@ impl Config {
 
         for &(name, prefix) in PROVIDER_NAMES {
             // A provider is configured if it has an API key set (or for ollama, a BASE_URL)
-            let api_key = env::var(format!("{}_API_KEY", prefix)).ok().filter(|s| !s.is_empty());
-            let base_url = env::var(format!("{}_BASE_URL", prefix)).ok().filter(|s| !s.is_empty());
+            let api_key = env::var(format!("{}_API_KEY", prefix))
+                .ok()
+                .filter(|s| !s.is_empty());
+            let base_url = env::var(format!("{}_BASE_URL", prefix))
+                .ok()
+                .filter(|s| !s.is_empty());
 
             // Ollama doesn't need an API key, just check for base_url or models
-            let models_str = env::var(format!("{}_MODELS", prefix)).ok().filter(|s| !s.is_empty());
-            let has_config = api_key.is_some() || (name == "ollama" && (base_url.is_some() || models_str.is_some()));
+            let models_str = env::var(format!("{}_MODELS", prefix))
+                .ok()
+                .filter(|s| !s.is_empty());
+            let has_config = api_key.is_some()
+                || (name == "ollama" && (base_url.is_some() || models_str.is_some()));
 
             if !has_config {
                 continue;
