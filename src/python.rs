@@ -513,7 +513,16 @@ fn completion(
 
     let mut llm = PySwiftLLM::new(true, 1000, 300)?;
     llm.add_provider(&provider_name, api_key, base_url, None, 100)?;
-    llm.completion(py, model, messages, temperature, max_tokens, top_p, tools, tool_choice)
+    llm.completion(
+        py,
+        model,
+        messages,
+        temperature,
+        max_tokens,
+        top_p,
+        tools,
+        tool_choice,
+    )
 }
 
 fn infer_provider(model: &str) -> PyResult<String> {

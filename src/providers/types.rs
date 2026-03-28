@@ -192,11 +192,7 @@ impl ChatResponse {
     }
 
     /// Create a response that contains tool calls instead of text content.
-    pub fn new_tool_call(
-        model: String,
-        tool_calls: Vec<ToolCall>,
-        usage: Option<Usage>,
-    ) -> Self {
+    pub fn new_tool_call(model: String, tool_calls: Vec<ToolCall>, usage: Option<Usage>) -> Self {
         Self {
             id: format!("chatcmpl-{}", uuid::Uuid::new_v4()),
             object: "chat.completion".to_string(),

@@ -1,15 +1,12 @@
 use async_trait::async_trait;
 use futures::stream::BoxStream;
-use futures::StreamExt;
 use hmac::{Hmac, Mac};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tracing::{debug, error};
 
-use super::types::{
-    ChatRequest, ChatResponse, Choice, Message, StreamChunk, ToolCall, FunctionCall, Usage,
-};
+use super::types::{ChatRequest, ChatResponse, FunctionCall, StreamChunk, ToolCall, Usage};
 use super::{Provider, ProviderError};
 
 type HmacSha256 = Hmac<Sha256>;
@@ -456,7 +453,7 @@ fn days_to_ymd(mut days: u64) -> (u64, u64, u64) {
 }
 
 fn is_leap(y: u64) -> bool {
-    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+    (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400)
 }
 
 // ── Provider implementation ────────────────────────────────────────────────
@@ -477,8 +474,8 @@ impl Provider for BedrockProvider {
         );
 
         let converse_req = to_converse_request(request);
-        let body = serde_json::to_vec(&converse_req)
-            .map_err(|e| ProviderError::Parse(e.to_string()))?;
+        let body =
+            serde_json::to_vec(&converse_req).map_err(|e| ProviderError::Parse(e.to_string()))?;
 
         let headers = sign_request(
             "POST",
