@@ -11,6 +11,13 @@ class Message:
     def __init__(self, role: str, content: Optional[str] = None) -> None: ...
 
 
+class ToolCall:
+    """A tool call returned by the model."""
+    id: str
+    function_name: str
+    function_arguments: str
+
+
 class ChatCompletionResponse:
     """Response from a chat completion call."""
     id: str
@@ -20,6 +27,7 @@ class ChatCompletionResponse:
     prompt_tokens: Optional[int]
     completion_tokens: Optional[int]
     total_tokens: Optional[int]
+    tool_calls: Optional[list[ToolCall]]
 
     @property
     def raw(self) -> dict:
@@ -39,6 +47,9 @@ class SwiftLLM:
         Maximum cached responses (default 1000).
     cache_ttl : int
         Cache TTL in seconds (default 300).
+
+    Supported providers: openai, anthropic, gemini, mistral, ollama,
+    groq, together, bedrock.
     """
 
     def __init__(
@@ -58,7 +69,7 @@ class SwiftLLM:
         models: Optional[list[str]] = None,
         priority: int = 100,
     ) -> None:
-        """Register a provider (openai, anthropic, gemini, mistral, ollama)."""
+        """Register a provider (openai, anthropic, gemini, mistral, ollama, groq, together, bedrock)."""
         ...
 
     def set_key(self, provider: str, api_key: str) -> None:
@@ -73,6 +84,8 @@ class SwiftLLM:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         top_p: Optional[float] = None,
+        tools: Optional[list[dict]] = None,
+        tool_choice: Optional[Union[str, dict]] = None,
     ) -> ChatCompletionResponse:
         """
         Send a chat completion request.
@@ -86,6 +99,10 @@ class SwiftLLM:
         temperature : float, optional
         max_tokens : int, optional
         top_p : float, optional
+        tools : list[dict], optional
+            Tool definitions for function calling (OpenAI format).
+        tool_choice : str | dict, optional
+            Controls tool usage: "auto", "none", "required", or a dict.
         """
         ...
 
@@ -111,10 +128,14 @@ def completion(
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     top_p: Optional[float] = None,
+    tools: Optional[list[dict]] = None,
+    tool_choice: Optional[Union[str, dict]] = None,
 ) -> ChatCompletionResponse:
     """
     Quick one-shot completion (LiteLLM-style).
 
     Provider is auto-detected from the model name.
+    Supports 8 providers: OpenAI, Anthropic, Gemini, Mistral, Ollama,
+    Groq, Together AI, and AWS Bedrock.
     """
     ...

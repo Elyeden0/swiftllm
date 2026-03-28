@@ -12,7 +12,7 @@ use tokio::runtime::Runtime;
 use crate::config::{
     AuthConfig, CacheConfig, Config, ProviderConfig, ProviderKind, RateLimitConfig, RoutingConfig,
 };
-use crate::providers::types::{ChatRequest, ChatResponse, Message};
+use crate::providers::types::{ChatRequest, Message, ToolDefinition};
 use crate::providers::Provider;
 use crate::server::AppState;
 
@@ -27,8 +27,11 @@ fn parse_kind(s: &str) -> PyResult<ProviderKind> {
         "gemini" => Ok(ProviderKind::Gemini),
         "mistral" => Ok(ProviderKind::Mistral),
         "ollama" => Ok(ProviderKind::Ollama),
+        "groq" => Ok(ProviderKind::Groq),
+        "together" => Ok(ProviderKind::Together),
+        "bedrock" => Ok(ProviderKind::Bedrock),
         other => Err(PyValueError::new_err(format!(
-            "Unknown provider kind: '{}'. Expected one of: openai, anthropic, gemini, mistral, ollama",
+            "Unknown provider kind: '{}'. Expected one of: openai, anthropic, gemini, mistral, ollama, groq, together, bedrock",
             other
         ))),
     }
@@ -90,8 +93,38 @@ pub struct PyChatResponse {
     pub completion_tokens: Option<u64>,
     #[pyo3(get)]
     pub total_tokens: Option<u64>,
+    #[pyo3(get)]
+    pub tool_calls: Option<Vec<PyToolCall>>,
     /// The full raw JSON as a Python dict (for advanced users).
     raw_json: String,
+}
+
+/// A tool call returned by the model.
+#[pyclass(name = "ToolCall")]
+#[derive(Clone)]
+pub struct PyToolCall {
+    #[pyo3(get)]
+    pub id: String,
+    #[pyo3(get)]
+    pub function_name: String,
+    #[pyo3(get)]
+    pub function_arguments: String,
+}
+
+#[pymethods]
+impl PyToolCall {
+    fn __repr__(&self) -> String {
+        format!(
+            "ToolCall(id='{}', function='{}', args='{}')",
+            self.id,
+            self.function_name,
+            if self.function_arguments.len() > 60 {
+                &self.function_arguments[..60]
+            } else {
+                &self.function_arguments
+            }
+        )
+    }
 }
 
 #[pymethods]
@@ -116,8 +149,8 @@ impl PyChatResponse {
     }
 }
 
-impl From<ChatResponse> for PyChatResponse {
-    fn from(r: ChatResponse) -> Self {
+impl From<crate::providers::types::ChatResponse> for PyChatResponse {
+    fn from(r: crate::providers::types::ChatResponse) -> Self {
         let content = r.choices.first().and_then(|c| c.message.content.clone());
         let finish_reason = r.choices.first().and_then(|c| c.finish_reason.clone());
         let (pt, ct, tt) = r
@@ -131,6 +164,21 @@ impl From<ChatResponse> for PyChatResponse {
                 )
             })
             .unwrap_or((None, None, None));
+
+        let tool_calls = r
+            .choices
+            .first()
+            .and_then(|c| c.message.tool_calls.as_ref())
+            .map(|tcs| {
+                tcs.iter()
+                    .map(|tc| PyToolCall {
+                        id: tc.id.clone(),
+                        function_name: tc.function.name.clone(),
+                        function_arguments: tc.function.arguments.clone(),
+                    })
+                    .collect()
+            });
+
         Self {
             id: r.id.clone(),
             model: r.model.clone(),
@@ -139,6 +187,7 @@ impl From<ChatResponse> for PyChatResponse {
             prompt_tokens: pt,
             completion_tokens: ct,
             total_tokens: tt,
+            tool_calls,
             raw_json: serde_json::to_string(&r).unwrap_or_default(),
         }
     }
@@ -210,9 +259,10 @@ impl PySwiftLLM {
     /// Parameters
     /// ----------
     /// name : str
-    ///     Provider identifier (e.g. "openai", "anthropic", "gemini", "mistral", "ollama").
+    ///     Provider identifier (e.g. "openai", "anthropic", "gemini", "mistral",
+    ///     "ollama", "groq", "together", "bedrock").
     /// api_key : str, optional
-    ///     The provider's API key. Not needed for Ollama.
+    ///     The provider's API key. Not needed for Ollama or Bedrock.
     /// base_url : str, optional
     ///     Custom base URL for the provider API.
     /// models : list[str], optional
@@ -270,11 +320,15 @@ impl PySwiftLLM {
     /// temperature : float, optional
     /// max_tokens : int, optional
     /// top_p : float, optional
+    /// tools : list[dict], optional
+    ///     Tool definitions for function calling.
+    /// tool_choice : str | dict, optional
+    ///     Controls tool usage: "auto", "none", "required", or a dict.
     ///
     /// Returns
     /// -------
     /// ChatCompletionResponse
-    #[pyo3(signature = (model, messages, *, temperature=None, max_tokens=None, top_p=None))]
+    #[pyo3(signature = (model, messages, *, temperature=None, max_tokens=None, top_p=None, tools=None, tool_choice=None))]
     fn completion(
         &mut self,
         py: Python<'_>,
@@ -283,8 +337,12 @@ impl PySwiftLLM {
         temperature: Option<f64>,
         max_tokens: Option<u64>,
         top_p: Option<f64>,
+        tools: Option<&Bound<'_, pyo3::types::PyAny>>,
+        tool_choice: Option<&Bound<'_, pyo3::types::PyAny>>,
     ) -> PyResult<PyChatResponse> {
         let msgs = extract_messages(messages)?;
+        let tools_vec = extract_tools(tools)?;
+        let tool_choice_val = extract_tool_choice(tool_choice)?;
         let state = self.ensure_state()?;
 
         let request = ChatRequest {
@@ -297,6 +355,8 @@ impl PySwiftLLM {
             stop: None,
             presence_penalty: None,
             frequency_penalty: None,
+            tools: tools_vec,
+            tool_choice: tool_choice_val,
         };
 
         // Find the right provider
@@ -435,7 +495,7 @@ impl PySwiftLLM {
 /// print(resp.content)
 /// ```
 #[pyfunction]
-#[pyo3(signature = (model, messages, *, api_key=None, base_url=None, temperature=None, max_tokens=None, top_p=None))]
+#[pyo3(signature = (model, messages, *, api_key=None, base_url=None, temperature=None, max_tokens=None, top_p=None, tools=None, tool_choice=None))]
 fn completion(
     py: Python<'_>,
     model: &str,
@@ -445,13 +505,15 @@ fn completion(
     temperature: Option<f64>,
     max_tokens: Option<u64>,
     top_p: Option<f64>,
+    tools: Option<&Bound<'_, pyo3::types::PyAny>>,
+    tool_choice: Option<&Bound<'_, pyo3::types::PyAny>>,
 ) -> PyResult<PyChatResponse> {
     // Infer provider from model name
     let provider_name = infer_provider(model)?;
 
     let mut llm = PySwiftLLM::new(true, 1000, 300)?;
     llm.add_provider(&provider_name, api_key, base_url, None, 100)?;
-    llm.completion(py, model, messages, temperature, max_tokens, top_p)
+    llm.completion(py, model, messages, temperature, max_tokens, top_p, tools, tool_choice)
 }
 
 fn infer_provider(model: &str) -> PyResult<String> {
@@ -473,6 +535,16 @@ fn infer_provider(model: &str) -> PyResult<String> {
         || m.starts_with("ministral")
     {
         Ok("mistral".into())
+    } else if m.starts_with("llama") || m.starts_with("mixtral") || m.starts_with("gemma") {
+        Ok("groq".into())
+    } else if m.contains('/') {
+        Ok("together".into())
+    } else if m.starts_with("anthropic.")
+        || m.starts_with("amazon.")
+        || m.starts_with("meta.")
+        || m.starts_with("cohere.")
+    {
+        Ok("bedrock".into())
     } else if m.contains(':') {
         Ok("ollama".into())
     } else {
@@ -493,10 +565,13 @@ fn extract_messages(obj: &Bound<'_, pyo3::types::PyAny>) -> PyResult<Vec<Message
         return Ok(vec![Message {
             role: "user".to_string(),
             content: Some(text),
+            tool_calls: None,
+            tool_call_id: None,
+            name: None,
         }]);
     }
 
-    // Case 2: list of dicts
+    // Case 2: list of dicts / PyMessage objects
     let list: Vec<Bound<'_, pyo3::types::PyAny>> = obj.extract()?;
     let mut msgs = Vec::with_capacity(list.len());
     for item in &list {
@@ -505,6 +580,9 @@ fn extract_messages(obj: &Bound<'_, pyo3::types::PyAny>) -> PyResult<Vec<Message
             msgs.push(Message {
                 role: pm.role,
                 content: pm.content,
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
             });
             continue;
         }
@@ -515,9 +593,64 @@ fn extract_messages(obj: &Bound<'_, pyo3::types::PyAny>) -> PyResult<Vec<Message
             .ok_or_else(|| PyValueError::new_err("Message dict must have 'role' key"))?
             .extract()?;
         let content: Option<String> = dict.get_item("content")?.map(|v| v.extract()).transpose()?;
-        msgs.push(Message { role, content });
+        let tool_call_id: Option<String> = dict
+            .get_item("tool_call_id")?
+            .map(|v| v.extract())
+            .transpose()?;
+        let name: Option<String> = dict.get_item("name")?.map(|v| v.extract()).transpose()?;
+
+        // Parse tool_calls if present
+        let tool_calls = if let Some(tc_list) = dict.get_item("tool_calls")? {
+            let json_str = py_to_json_value(&tc_list)?;
+            serde_json::from_value(json_str).ok()
+        } else {
+            None
+        };
+
+        msgs.push(Message {
+            role,
+            content,
+            tool_calls,
+            tool_call_id,
+            name,
+        });
     }
     Ok(msgs)
+}
+
+fn extract_tools(
+    tools: Option<&Bound<'_, pyo3::types::PyAny>>,
+) -> PyResult<Option<Vec<ToolDefinition>>> {
+    match tools {
+        None => Ok(None),
+        Some(obj) => {
+            let json_val = py_to_json_value(obj)?;
+            let tools: Vec<ToolDefinition> = serde_json::from_value(json_val)
+                .map_err(|e| PyValueError::new_err(format!("Invalid tools format: {}", e)))?;
+            Ok(Some(tools))
+        }
+    }
+}
+
+fn extract_tool_choice(
+    tool_choice: Option<&Bound<'_, pyo3::types::PyAny>>,
+) -> PyResult<Option<serde_json::Value>> {
+    match tool_choice {
+        None => Ok(None),
+        Some(obj) => {
+            let val = py_to_json_value(obj)?;
+            Ok(Some(val))
+        }
+    }
+}
+
+/// Convert a Python object to serde_json::Value via JSON serialization.
+fn py_to_json_value(obj: &Bound<'_, pyo3::types::PyAny>) -> PyResult<serde_json::Value> {
+    let py = obj.py();
+    let json_module = py.import_bound("json")?;
+    let json_str: String = json_module.call_method1("dumps", (obj,))?.extract()?;
+    serde_json::from_str(&json_str)
+        .map_err(|e| PyValueError::new_err(format!("JSON parse error: {}", e)))
 }
 
 // ---------------------------------------------------------------------------
@@ -530,6 +663,7 @@ pub fn _swiftllm(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySwiftLLM>()?;
     m.add_class::<PyMessage>()?;
     m.add_class::<PyChatResponse>()?;
+    m.add_class::<PyToolCall>()?;
     m.add_function(wrap_pyfunction!(completion, m)?)?;
     Ok(())
 }
