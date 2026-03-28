@@ -1,0 +1,513 @@
+===========================================================================
+  SwiftLLM — Language Bindings Guide
+  How to use SwiftLLM from every major language
+===========================================================================
+
+SwiftLLM is built in Rust and exposes a C-compatible FFI layer. This means
+any language that can call C functions can use SwiftLLM natively, with zero
+overhead beyond the FFI boundary.
+
+The shared library file you need:
+  Linux:   libswiftllm.so
+  macOS:   libswiftllm.dylib
+  Windows: swiftllm.dll
+
+Build it with:
+  cargo build --release
+  # Output: target/release/libswiftllm.so (or .dylib / .dll)
+
+
+===========================================================================
+  1. PYTHON  (first-class support via PyO3)
+===========================================================================
+
+  pip install swiftllm
+
+  from swiftllm import SwiftLLM, completion
+
+  # Object-oriented
+  llm = SwiftLLM()
+  llm.add_provider("openai", api_key="sk-...")
+  resp = llm.completion("gpt-4o-mini", "What is the meaning of life?")
+  print(resp.content)
+
+  # One-liner
+  resp = completion("gpt-4o-mini", "Hello!", api_key="sk-...")
+  print(resp.content)
+
+
+===========================================================================
+  2. NODE.JS / TYPESCRIPT  (first-class support via NAPI-RS, coming soon)
+===========================================================================
+
+  npm install swiftllm
+
+  import { completion } from 'swiftllm';
+
+  const resp = await completion("gpt-4o-mini", "Hello!", {
+    apiKey: "sk-..."
+  });
+  console.log(resp.content);
+
+
+===========================================================================
+  3. C
+===========================================================================
+
+  #include "swiftllm.h"
+  #include <stdio.h>
+
+  int main() {
+      SwiftLLMHandle *llm = swiftllm_create();
+      swiftllm_add_provider(llm, "openai", "sk-...", NULL);
+
+      char *response = swiftllm_completion(llm, "gpt-4o-mini", "Hello!");
+      if (response) {
+          printf("%s\n", response);
+          swiftllm_free_string(response);
+      }
+
+      swiftllm_destroy(llm);
+      return 0;
+  }
+
+  Compile:
+    gcc -o example example.c -L./target/release -lswiftllm
+    LD_LIBRARY_PATH=./target/release ./example
+
+
+===========================================================================
+  4. C++
+===========================================================================
+
+  #include "swiftllm.h"
+  #include <iostream>
+  #include <memory>
+
+  // RAII wrapper
+  struct SwiftLLM {
+      SwiftLLMHandle *handle;
+      SwiftLLM() : handle(swiftllm_create()) {}
+      ~SwiftLLM() { swiftllm_destroy(handle); }
+
+      void addProvider(const char *name, const char *key) {
+          swiftllm_add_provider(handle, name, key, nullptr);
+      }
+
+      std::string completion(const char *model, const char *prompt) {
+          char *resp = swiftllm_completion(handle, model, prompt);
+          if (!resp) return "";
+          std::string result(resp);
+          swiftllm_free_string(resp);
+          return result;
+      }
+  };
+
+  int main() {
+      SwiftLLM llm;
+      llm.addProvider("openai", "sk-...");
+      std::cout << llm.completion("gpt-4o-mini", "Hello!") << std::endl;
+      return 0;
+  }
+
+  Compile:
+    g++ -o example example.cpp -L./target/release -lswiftllm
+    LD_LIBRARY_PATH=./target/release ./example
+
+
+===========================================================================
+  5. GO
+===========================================================================
+
+  package main
+
+  /*
+  #cgo LDFLAGS: -L${SRCDIR}/target/release -lswiftllm
+  #include "include/swiftllm.h"
+  #include <stdlib.h>
+  */
+  import "C"
+  import (
+      "fmt"
+      "unsafe"
+  )
+
+  func main() {
+      handle := C.swiftllm_create()
+      defer C.swiftllm_destroy(handle)
+
+      name := C.CString("openai")
+      defer C.free(unsafe.Pointer(name))
+      key := C.CString("sk-...")
+      defer C.free(unsafe.Pointer(key))
+
+      C.swiftllm_add_provider(handle, name, key, nil)
+
+      model := C.CString("gpt-4o-mini")
+      defer C.free(unsafe.Pointer(model))
+      prompt := C.CString("Hello!")
+      defer C.free(unsafe.Pointer(prompt))
+
+      resp := C.swiftllm_completion(handle, model, prompt)
+      if resp != nil {
+          fmt.Println(C.GoString(resp))
+          C.swiftllm_free_string(resp)
+      }
+  }
+
+  Build:
+    CGO_LDFLAGS="-L./target/release" go build -o example main.go
+    LD_LIBRARY_PATH=./target/release ./example
+
+
+===========================================================================
+  6. JAVA  (via Foreign Function & Memory API, Java 22+)
+===========================================================================
+
+  // Using Panama FFI (java.lang.foreign)
+  import java.lang.foreign.*;
+  import java.lang.invoke.*;
+
+  public class SwiftLLMExample {
+      static {
+          System.loadLibrary("swiftllm");
+      }
+
+      private static final Linker LINKER = Linker.nativeLinker();
+      private static final SymbolLookup LOOKUP = SymbolLookup.loaderLookup();
+
+      public static void main(String[] args) throws Throwable {
+          try (var arena = Arena.ofConfined()) {
+              // swiftllm_create
+              var createHandle = LINKER.downcallHandle(
+                  LOOKUP.find("swiftllm_create").orElseThrow(),
+                  FunctionDescriptor.of(ValueLayout.ADDRESS)
+              );
+              MemorySegment handle = (MemorySegment) createHandle.invoke();
+
+              // swiftllm_add_provider
+              var addProviderHandle = LINKER.downcallHandle(
+                  LOOKUP.find("swiftllm_add_provider").orElseThrow(),
+                  FunctionDescriptor.of(ValueLayout.JAVA_INT,
+                      ValueLayout.ADDRESS, ValueLayout.ADDRESS,
+                      ValueLayout.ADDRESS, ValueLayout.ADDRESS)
+              );
+              addProviderHandle.invoke(handle,
+                  arena.allocateFrom("openai"),
+                  arena.allocateFrom("sk-..."),
+                  MemorySegment.NULL);
+
+              // swiftllm_completion
+              var completionHandle = LINKER.downcallHandle(
+                  LOOKUP.find("swiftllm_completion").orElseThrow(),
+                  FunctionDescriptor.of(ValueLayout.ADDRESS,
+                      ValueLayout.ADDRESS, ValueLayout.ADDRESS,
+                      ValueLayout.ADDRESS)
+              );
+              MemorySegment result = (MemorySegment) completionHandle.invoke(
+                  handle,
+                  arena.allocateFrom("gpt-4o-mini"),
+                  arena.allocateFrom("Hello!"));
+
+              if (!result.equals(MemorySegment.NULL)) {
+                  System.out.println(result.reinterpret(Long.MAX_VALUE)
+                      .getString(0));
+                  // swiftllm_free_string
+                  var freeHandle = LINKER.downcallHandle(
+                      LOOKUP.find("swiftllm_free_string").orElseThrow(),
+                      FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)
+                  );
+                  freeHandle.invoke(result);
+              }
+
+              // swiftllm_destroy
+              var destroyHandle = LINKER.downcallHandle(
+                  LOOKUP.find("swiftllm_destroy").orElseThrow(),
+                  FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)
+              );
+              destroyHandle.invoke(handle);
+          }
+      }
+  }
+
+  Compile and run:
+    javac SwiftLLMExample.java
+    java -Djava.library.path=./target/release \
+         --enable-native-access=ALL-UNNAMED SwiftLLMExample
+
+
+===========================================================================
+  7. C#  (via P/Invoke)
+===========================================================================
+
+  using System;
+  using System.Runtime.InteropServices;
+
+  class SwiftLLM : IDisposable {
+      [DllImport("swiftllm")] static extern IntPtr swiftllm_create();
+      [DllImport("swiftllm")] static extern void swiftllm_destroy(IntPtr h);
+      [DllImport("swiftllm")] static extern int swiftllm_add_provider(
+          IntPtr h, string name, string apiKey, string baseUrl);
+      [DllImport("swiftllm")] static extern IntPtr swiftllm_completion(
+          IntPtr h, string model, string prompt);
+      [DllImport("swiftllm")] static extern void swiftllm_free_string(IntPtr p);
+
+      private IntPtr handle;
+
+      public SwiftLLM() { handle = swiftllm_create(); }
+      public void Dispose() { swiftllm_destroy(handle); }
+
+      public void AddProvider(string name, string key) {
+          swiftllm_add_provider(handle, name, key, null);
+      }
+
+      public string Completion(string model, string prompt) {
+          IntPtr ptr = swiftllm_completion(handle, model, prompt);
+          if (ptr == IntPtr.Zero) return null;
+          string result = Marshal.PtrToStringAnsi(ptr);
+          swiftllm_free_string(ptr);
+          return result;
+      }
+  }
+
+  class Program {
+      static void Main() {
+          using var llm = new SwiftLLM();
+          llm.AddProvider("openai", "sk-...");
+          Console.WriteLine(llm.Completion("gpt-4o-mini", "Hello!"));
+      }
+  }
+
+  Build:
+    Copy libswiftllm.so / swiftllm.dll to your project output folder.
+    dotnet run
+
+
+===========================================================================
+  8. RUBY  (via FFI gem)
+===========================================================================
+
+  require 'ffi'
+  require 'json'
+
+  module SwiftLLMLib
+    extend FFI::Library
+    ffi_lib './target/release/libswiftllm.so'
+
+    attach_function :swiftllm_create, [], :pointer
+    attach_function :swiftllm_destroy, [:pointer], :void
+    attach_function :swiftllm_add_provider, [:pointer, :string, :string, :string], :int
+    attach_function :swiftllm_completion, [:pointer, :string, :string], :pointer
+    attach_function :swiftllm_free_string, [:pointer], :void
+  end
+
+  handle = SwiftLLMLib.swiftllm_create
+  SwiftLLMLib.swiftllm_add_provider(handle, "openai", "sk-...", nil)
+
+  ptr = SwiftLLMLib.swiftllm_completion(handle, "gpt-4o-mini", "Hello!")
+  unless ptr.null?
+    response = JSON.parse(ptr.read_string)
+    puts response.dig("choices", 0, "message", "content")
+    SwiftLLMLib.swiftllm_free_string(ptr)
+  end
+
+  SwiftLLMLib.swiftllm_destroy(handle)
+
+  Setup:
+    gem install ffi
+    ruby example.rb
+
+
+===========================================================================
+  9. PHP  (via FFI, PHP 7.4+)
+===========================================================================
+
+  <?php
+  $ffi = FFI::cdef(
+      file_get_contents("include/swiftllm.h"),
+      "./target/release/libswiftllm.so"
+  );
+
+  $handle = $ffi->swiftllm_create();
+  $ffi->swiftllm_add_provider($handle, "openai", "sk-...", null);
+
+  $resp = $ffi->swiftllm_completion($handle, "gpt-4o-mini", "Hello!");
+  if (!FFI::isNull($resp)) {
+      $json = json_decode(FFI::string($resp), true);
+      echo $json["choices"][0]["message"]["content"] . "\n";
+      $ffi->swiftllm_free_string($resp);
+  }
+
+  $ffi->swiftllm_destroy($handle);
+
+  Run:
+    php -d ffi.enable=1 example.php
+
+
+===========================================================================
+  10. ELIXIR  (via Rustler NIF or Port)
+===========================================================================
+
+  # Using Rustler NIF (recommended):
+  # Add to mix.exs: {:rustler, "~> 0.34"}
+  # Then create a native module:
+
+  defmodule SwiftLLM.Native do
+    use Rustler,
+      otp_app: :my_app,
+      crate: :swiftllm_nif
+
+    def completion(_model, _prompt, _api_key), do: :erlang.nif_error(:nif_not_loaded)
+  end
+
+  # Usage:
+  {:ok, json} = SwiftLLM.Native.completion("gpt-4o-mini", "Hello!", "sk-...")
+  response = Jason.decode!(json)
+  IO.puts(response["choices"] |> hd() |> get_in(["message", "content"]))
+
+  # Alternative: use the C FFI via a Port process.
+  # See Elixir docs on Ports and NIFs for details.
+
+
+===========================================================================
+  11. SWIFT
+===========================================================================
+
+  // In your Package.swift, add a system library target pointing to the header:
+  // .systemLibrary(name: "CSwiftLLM", path: "include")
+
+  import CSwiftLLM
+
+  class LLM {
+      private var handle: OpaquePointer?
+
+      init() { handle = swiftllm_create() }
+      deinit { swiftllm_destroy(handle) }
+
+      func addProvider(_ name: String, apiKey: String) {
+          swiftllm_add_provider(handle, name, apiKey, nil)
+      }
+
+      func completion(model: String, prompt: String) -> String? {
+          guard let ptr = swiftllm_completion(handle, model, prompt) else {
+              return nil
+          }
+          let result = String(cString: ptr)
+          swiftllm_free_string(ptr)
+          return result
+      }
+  }
+
+  let llm = LLM()
+  llm.addProvider("openai", apiKey: "sk-...")
+  if let response = llm.completion(model: "gpt-4o-mini", prompt: "Hello!") {
+      print(response)
+  }
+
+
+===========================================================================
+  12. KOTLIN / JVM  (via JNA)
+===========================================================================
+
+  // build.gradle.kts: implementation("net.java.dev.jna:jna:5.14.0")
+
+  import com.sun.jna.Library
+  import com.sun.jna.Native
+  import com.sun.jna.Pointer
+
+  interface SwiftLLMLib : Library {
+      fun swiftllm_create(): Pointer
+      fun swiftllm_destroy(handle: Pointer)
+      fun swiftllm_add_provider(h: Pointer, name: String, key: String, url: String?): Int
+      fun swiftllm_completion(h: Pointer, model: String, prompt: String): Pointer?
+      fun swiftllm_free_string(ptr: Pointer)
+  }
+
+  fun main() {
+      val lib = Native.load("swiftllm", SwiftLLMLib::class.java)
+      val handle = lib.swiftllm_create()
+
+      lib.swiftllm_add_provider(handle, "openai", "sk-...", null)
+
+      val resp = lib.swiftllm_completion(handle, "gpt-4o-mini", "Hello!")
+      if (resp != null) {
+          println(resp.getString(0))
+          lib.swiftllm_free_string(resp)
+      }
+
+      lib.swiftllm_destroy(handle)
+  }
+
+  Run:
+    Copy libswiftllm.so to java.library.path
+    kotlin -Djava.library.path=./target/release ExampleKt
+
+
+===========================================================================
+  13. ZIG
+===========================================================================
+
+  const std = @import("std");
+  const c = @cImport({
+      @cInclude("swiftllm.h");
+  });
+
+  pub fn main() !void {
+      const handle = c.swiftllm_create() orelse return;
+      defer c.swiftllm_destroy(handle);
+
+      _ = c.swiftllm_add_provider(handle, "openai", "sk-...", null);
+
+      const resp = c.swiftllm_completion(handle, "gpt-4o-mini", "Hello!");
+      if (resp) |ptr| {
+          const slice = std.mem.span(ptr);
+          std.debug.print("{s}\n", .{slice});
+          c.swiftllm_free_string(ptr);
+      }
+  }
+
+  Build:
+    zig build-exe example.zig -I./include -L./target/release -lswiftllm
+
+
+===========================================================================
+  14. RUST  (native, no FFI needed)
+===========================================================================
+
+  // Cargo.toml: swiftllm = "0.4"
+
+  use swiftllm::config::*;
+  use swiftllm::server::AppState;
+  use swiftllm::providers::types::*;
+  use std::sync::Arc;
+
+  #[tokio::main]
+  async fn main() {
+      // Use SwiftLLM as a library — build config programmatically
+      // and call providers directly. See src/server.rs for the full API.
+  }
+
+
+===========================================================================
+  SUMMARY
+===========================================================================
+
+  Language       | Method                | Status
+  ---------------+-----------------------+------------------
+  Python         | PyO3 (pip install)    | Available now
+  Node.js / TS   | NAPI-RS (npm install) | Coming this week
+  Rust           | Native crate          | Available now
+  C              | C FFI (swiftllm.h)    | Available now
+  C++            | C FFI (swiftllm.h)    | Available now
+  Go             | cgo + C FFI           | Available now
+  Java           | Panama FFI / JNA      | Available now
+  C#             | P/Invoke              | Available now
+  Ruby           | FFI gem               | Available now
+  PHP            | PHP FFI extension     | Available now
+  Elixir         | Rustler NIF / Port    | Available now
+  Swift          | C interop             | Available now
+  Kotlin         | JNA                   | Available now
+  Zig            | @cImport              | Available now
+
+  All C FFI bindings use the same shared library (libswiftllm.so/dylib/dll)
+  and header file (include/swiftllm.h). Build once, use everywhere.

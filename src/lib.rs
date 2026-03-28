@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod failover;
+pub mod ffi;
 pub mod middleware;
 pub mod providers;
 pub mod server;

@@ -9,6 +9,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 
+use secrecy::SecretString;
+
 use crate::config::{
     AuthConfig, CacheConfig, Config, ProviderConfig, ProviderKind, RateLimitConfig, RoutingConfig,
 };
@@ -283,7 +285,7 @@ impl PySwiftLLM {
             name.to_lowercase(),
             ProviderConfig {
                 kind,
-                api_key,
+                api_key: api_key.map(SecretString::from),
                 base_url,
                 models: models.unwrap_or_default(),
                 priority,
@@ -299,7 +301,7 @@ impl PySwiftLLM {
     fn set_key(&mut self, provider: &str, api_key: &str) -> PyResult<()> {
         let name = provider.to_lowercase();
         if let Some(cfg) = self.providers.get_mut(&name) {
-            cfg.api_key = Some(api_key.to_string());
+            cfg.api_key = Some(SecretString::from(api_key.to_string()));
             self.state = None;
             Ok(())
         } else {
@@ -453,7 +455,11 @@ impl PySwiftLLM {
         let config = Config {
             port: 0, // unused in library mode
             auth: AuthConfig {
-                api_keys: self.auth_api_keys.clone(),
+                api_keys: self
+                    .auth_api_keys
+                    .iter()
+                    .map(|s| SecretString::from(s.clone()))
+                    .collect(),
             },
             providers: self.providers.clone(),
             routing: RoutingConfig {
