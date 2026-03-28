@@ -3,8 +3,8 @@ requires = ["maturin>=1.5,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "swiftllm"
-version = "0.1.0"
+name = "swiftllm_py"
+version = "0.3.0"
 description = "A blazing-fast universal LLM gateway — call OpenAI, Anthropic, Gemini, Mistral & Ollama through one unified API."
 readme = "README.md"
 license = { text = "MIT" }
