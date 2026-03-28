@@ -32,6 +32,9 @@ pub enum ProviderKind {
     Ollama,
     Gemini,
     Mistral,
+    Groq,
+    Together,
+    Bedrock,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -88,6 +91,9 @@ const PROVIDER_NAMES: &[(&str, &str)] = &[
     ("gemini", "GEMINI"),
     ("mistral", "MISTRAL"),
     ("ollama", "OLLAMA"),
+    ("groq", "GROQ"),
+    ("together", "TOGETHER"),
+    ("bedrock", "BEDROCK"),
 ];
 
 fn parse_provider_kind(s: &str) -> Option<ProviderKind> {
@@ -97,6 +103,9 @@ fn parse_provider_kind(s: &str) -> Option<ProviderKind> {
         "gemini" => Some(ProviderKind::Gemini),
         "mistral" => Some(ProviderKind::Mistral),
         "ollama" => Some(ProviderKind::Ollama),
+        "groq" => Some(ProviderKind::Groq),
+        "together" => Some(ProviderKind::Together),
+        "bedrock" => Some(ProviderKind::Bedrock),
         _ => None,
     }
 }
@@ -193,8 +202,16 @@ impl Config {
             let models_str = env::var(format!("{}_MODELS", prefix))
                 .ok()
                 .filter(|s| !s.is_empty());
+
+            // Bedrock uses AWS credential env vars instead of API key
+            let has_bedrock_config = name == "bedrock"
+                && (env::var("AWS_ACCESS_KEY_ID").is_ok()
+                    || env::var("BEDROCK_REGION").is_ok()
+                    || models_str.is_some());
+
             let has_config = api_key.is_some()
-                || (name == "ollama" && (base_url.is_some() || models_str.is_some()));
+                || (name == "ollama" && (base_url.is_some() || models_str.is_some()))
+                || has_bedrock_config;
 
             if !has_config {
                 continue;
@@ -254,7 +271,7 @@ impl Config {
             }
         }
 
-        // Second: prefix-based matching (e.g., "claude-" -> anthropic, "gpt-" -> openai)
+        // Second: prefix-based matching
         for (name, provider) in &self.providers {
             let matches = match provider.kind {
                 ProviderKind::Openai => {
@@ -275,6 +292,25 @@ impl Config {
                 }
                 ProviderKind::Ollama => {
                     model.contains(':') // ollama models typically have "model:tag" format
+                }
+                ProviderKind::Groq => {
+                    // Groq hosts various open-source models
+                    model.starts_with("llama")
+                        || model.starts_with("mixtral")
+                        || model.starts_with("gemma")
+                }
+                ProviderKind::Together => {
+                    // Together AI uses org/model format
+                    model.contains('/')
+                }
+                ProviderKind::Bedrock => {
+                    // Bedrock uses provider.model-id format
+                    model.starts_with("anthropic.")
+                        || model.starts_with("amazon.")
+                        || model.starts_with("meta.")
+                        || model.starts_with("cohere.")
+                        || model.starts_with("ai21.")
+                        || model.starts_with("mistral.")
                 }
             };
             if matches {

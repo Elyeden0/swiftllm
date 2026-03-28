@@ -17,10 +17,13 @@ use crate::middleware::cache::ResponseCache;
 use crate::middleware::cost::CostTracker;
 use crate::middleware::rate_limit::RateLimiter;
 use crate::providers::anthropic::AnthropicProvider;
+use crate::providers::bedrock::BedrockProvider;
 use crate::providers::gemini::GeminiProvider;
+use crate::providers::groq::GroqProvider;
 use crate::providers::mistral::MistralProvider;
 use crate::providers::ollama::OllamaProvider;
 use crate::providers::openai::OpenAiProvider;
+use crate::providers::together::TogetherProvider;
 use crate::providers::types::ChatRequest;
 use crate::providers::{Provider, ProviderError};
 
@@ -57,6 +60,29 @@ impl AppState {
                 )),
                 ProviderKind::Ollama => {
                     Arc::new(OllamaProvider::new(provider_config.base_url.clone()))
+                }
+                ProviderKind::Groq => Arc::new(GroqProvider::new(
+                    provider_config.api_key.clone().unwrap_or_default(),
+                    provider_config.base_url.clone(),
+                )),
+                ProviderKind::Together => Arc::new(TogetherProvider::new(
+                    provider_config.api_key.clone().unwrap_or_default(),
+                    provider_config.base_url.clone(),
+                )),
+                ProviderKind::Bedrock => {
+                    let region = std::env::var("BEDROCK_REGION")
+                        .or_else(|_| std::env::var("AWS_REGION"))
+                        .or_else(|_| std::env::var("AWS_DEFAULT_REGION"))
+                        .unwrap_or_else(|_| "us-east-1".to_string());
+                    let access_key = std::env::var("AWS_ACCESS_KEY_ID").unwrap_or_default();
+                    let secret_key = std::env::var("AWS_SECRET_ACCESS_KEY").unwrap_or_default();
+                    let session_token = std::env::var("AWS_SESSION_TOKEN").ok();
+                    Arc::new(BedrockProvider::new(
+                        region,
+                        access_key,
+                        secret_key,
+                        session_token,
+                    ))
                 }
             };
             providers.insert(name.clone(), provider);

@@ -50,7 +50,7 @@ impl CostTracker {
     pub fn new() -> Self {
         let mut pricing = HashMap::new();
 
-        // OpenAI pricing (approximate, March 2026)
+        // ── OpenAI pricing (approximate, March 2026) ────────────────────
         pricing.insert(
             "gpt-4o".into(),
             ModelPricing {
@@ -79,31 +79,6 @@ impl CostTracker {
                 output_per_million: 4.40,
             },
         );
-
-        // Anthropic pricing
-        pricing.insert(
-            "claude-opus-4-6".into(),
-            ModelPricing {
-                input_per_million: 15.00,
-                output_per_million: 75.00,
-            },
-        );
-        pricing.insert(
-            "claude-sonnet-4-6".into(),
-            ModelPricing {
-                input_per_million: 3.00,
-                output_per_million: 15.00,
-            },
-        );
-        pricing.insert(
-            "claude-haiku-4-5-20251001".into(),
-            ModelPricing {
-                input_per_million: 0.80,
-                output_per_million: 4.00,
-            },
-        );
-
-        // OpenAI newer models
         pricing.insert(
             "gpt-4.1".into(),
             ModelPricing {
@@ -140,7 +115,30 @@ impl CostTracker {
             },
         );
 
-        // Google Gemini pricing
+        // ── Anthropic pricing ───────────────────────────────────────────
+        pricing.insert(
+            "claude-opus-4-6".into(),
+            ModelPricing {
+                input_per_million: 15.00,
+                output_per_million: 75.00,
+            },
+        );
+        pricing.insert(
+            "claude-sonnet-4-6".into(),
+            ModelPricing {
+                input_per_million: 3.00,
+                output_per_million: 15.00,
+            },
+        );
+        pricing.insert(
+            "claude-haiku-4-5-20251001".into(),
+            ModelPricing {
+                input_per_million: 0.80,
+                output_per_million: 4.00,
+            },
+        );
+
+        // ── Google Gemini pricing ───────────────────────────────────────
         pricing.insert(
             "gemini-2.0-flash".into(),
             ModelPricing {
@@ -170,7 +168,7 @@ impl CostTracker {
             },
         );
 
-        // Mistral pricing
+        // ── Mistral pricing ────────────────────────────────────────────
         pricing.insert(
             "mistral-large-latest".into(),
             ModelPricing {
@@ -211,6 +209,96 @@ impl CostTracker {
             ModelPricing {
                 input_per_million: 2.00,
                 output_per_million: 6.00,
+            },
+        );
+
+        // ── Groq pricing (LPU inference) ───────────────────────────────
+        pricing.insert(
+            "llama-3.3-70b-versatile".into(),
+            ModelPricing {
+                input_per_million: 0.59,
+                output_per_million: 0.79,
+            },
+        );
+        pricing.insert(
+            "llama-3.1-8b-instant".into(),
+            ModelPricing {
+                input_per_million: 0.05,
+                output_per_million: 0.08,
+            },
+        );
+        pricing.insert(
+            "mixtral-8x7b-32768".into(),
+            ModelPricing {
+                input_per_million: 0.24,
+                output_per_million: 0.24,
+            },
+        );
+        pricing.insert(
+            "gemma2-9b-it".into(),
+            ModelPricing {
+                input_per_million: 0.20,
+                output_per_million: 0.20,
+            },
+        );
+
+        // ── Together AI pricing ─────────────────────────────────────────
+        pricing.insert(
+            "meta-llama/Llama-3.3-70B-Instruct-Turbo".into(),
+            ModelPricing {
+                input_per_million: 0.88,
+                output_per_million: 0.88,
+            },
+        );
+        pricing.insert(
+            "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo".into(),
+            ModelPricing {
+                input_per_million: 0.18,
+                output_per_million: 0.18,
+            },
+        );
+        pricing.insert(
+            "mistralai/Mixtral-8x7B-Instruct-v0.1".into(),
+            ModelPricing {
+                input_per_million: 0.60,
+                output_per_million: 0.60,
+            },
+        );
+        pricing.insert(
+            "Qwen/Qwen2.5-72B-Instruct-Turbo".into(),
+            ModelPricing {
+                input_per_million: 1.20,
+                output_per_million: 1.20,
+            },
+        );
+
+        // ── AWS Bedrock pricing (Claude models) ─────────────────────────
+        pricing.insert(
+            "anthropic.claude-3-5-sonnet-20241022-v2:0".into(),
+            ModelPricing {
+                input_per_million: 3.00,
+                output_per_million: 15.00,
+            },
+        );
+        pricing.insert(
+            "anthropic.claude-3-haiku-20240307-v1:0".into(),
+            ModelPricing {
+                input_per_million: 0.25,
+                output_per_million: 1.25,
+            },
+        );
+        pricing.insert(
+            "amazon.titan-text-premier-v1:0".into(),
+            ModelPricing {
+                input_per_million: 0.50,
+                output_per_million: 1.50,
+            },
+        );
+        pricing.insert(
+            "meta.llama3-1-70b-instruct-v1:0".into(),
+            ModelPricing {
+                input_per_million: 0.99,
+                output_per_million: 0.99,
             },
         );
 
