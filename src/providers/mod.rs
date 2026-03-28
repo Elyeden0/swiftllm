@@ -1,8 +1,11 @@
 pub mod anthropic;
+pub mod bedrock;
 pub mod gemini;
+pub mod groq;
 pub mod mistral;
 pub mod ollama;
 pub mod openai;
+pub mod together;
 pub mod types;
 
 use async_trait::async_trait;
