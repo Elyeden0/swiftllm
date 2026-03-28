@@ -1,0 +1,14 @@
+// SwiftLLM library crate — shared between the CLI binary and the Python extension.
+
+pub mod config;
+pub mod failover;
+pub mod middleware;
+pub mod providers;
+pub mod server;
+
+#[cfg(feature = "python")]
+pub mod python;
+
+// Re-export the PyO3 module init function so maturin can find it.
+#[cfg(feature = "python")]
+pub use python::_swiftllm;

@@ -1,8 +1,5 @@
-mod config;
-mod failover;
-mod middleware;
-mod providers;
-mod server;
+use swiftllm::config;
+use swiftllm::server;
 
 use clap::Parser;
 use std::net::SocketAddr;

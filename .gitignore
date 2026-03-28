@@ -4,3 +4,5 @@ config.toml
 *.swp
 *.swo
 .DS_Store
+*.so
+__pycache__/

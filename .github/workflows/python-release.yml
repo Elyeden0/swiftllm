@@ -1,0 +1,135 @@
+name: Python Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write  # Required for PyPI trusted publishing (OIDC)
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Build wheels for Linux (x86_64 + aarch64)
+  # ---------------------------------------------------------------------------
+  linux:
+    name: Linux (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - target: x86_64
+            runner: ubuntu-latest
+          - target: aarch64
+            runner: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist --find-interpreter
+          manylinux: auto
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-${{ matrix.target }}
+          path: dist
+
+  # ---------------------------------------------------------------------------
+  # Build wheels for macOS (x86_64 + Apple Silicon)
+  # ---------------------------------------------------------------------------
+  macos:
+    name: macOS (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - target: x86_64
+            runner: macos-13
+          - target: aarch64
+            runner: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist --find-interpreter
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-${{ matrix.target }}
+          path: dist
+
+  # ---------------------------------------------------------------------------
+  # Build wheels for Windows (x86_64)
+  # ---------------------------------------------------------------------------
+  windows:
+    name: Windows (x86_64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x64
+          args: --release --out dist --find-interpreter
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows-x64
+          path: dist
+
+  # ---------------------------------------------------------------------------
+  # Build source distribution (fallback for exotic platforms)
+  # ---------------------------------------------------------------------------
+  sdist:
+    name: Source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-sdist
+          path: dist
+
+  # ---------------------------------------------------------------------------
+  # Publish to PyPI
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Publish to PyPI
+    needs: [linux, macos, windows, sdist]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/swiftllm
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+
+      - name: List built distributions
+        run: ls -lh dist/
+
+      - name: Publish to PyPI
+        uses: PyO3/maturin-action@v1
+        with:
+          command: upload
+          args: --non-interactive --skip-existing dist/*

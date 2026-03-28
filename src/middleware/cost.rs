@@ -40,6 +40,12 @@ struct ProviderStats {
     errors: u64,
 }
 
+impl Default for CostTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CostTracker {
     pub fn new() -> Self {
         let mut pricing = HashMap::new();

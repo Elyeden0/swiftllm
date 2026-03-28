@@ -8,6 +8,18 @@ repository = "https://github.com/Elyeden0/swiftllm"
 keywords = ["llm", "proxy", "openai", "anthropic", "gateway"]
 categories = ["web-programming::http-server", "development-tools"]
 
+[lib]
+name = "swiftllm"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "swiftllm-server"
+path = "src/main.rs"
+
+[features]
+default = []
+python = ["dep:pyo3"]
+
 [dependencies]
 axum = { version = "0.8", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
@@ -24,3 +36,4 @@ futures = "0.3"
 bytes = "1"
 async-trait = "0.1"
 anyhow = "1"
+pyo3 = { version = "0.22", features = ["extension-module"], optional = true }
