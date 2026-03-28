@@ -39,4 +39,5 @@ async-trait = "0.1"
 anyhow = "1"
 hmac = "0.12"
 sha2 = "0.10"
+secrecy = { version = "0.10", features = ["serde"] }
 pyo3 = { version = "0.22", features = ["extension-module"], optional = true }

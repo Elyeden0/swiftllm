@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::env;
 
+use secrecy::SecretString;
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub port: u16,
@@ -11,18 +13,38 @@ pub struct Config {
     pub rate_limit: RateLimitConfig,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct AuthConfig {
-    pub api_keys: Vec<String>,
+    pub api_keys: Vec<SecretString>,
 }
 
-#[derive(Debug, Clone)]
+impl std::fmt::Debug for AuthConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuthConfig")
+            .field("api_keys", &format!("[{} key(s)]", self.api_keys.len()))
+            .finish()
+    }
+}
+
+#[derive(Clone)]
 pub struct ProviderConfig {
     pub kind: ProviderKind,
-    pub api_key: Option<String>,
+    pub api_key: Option<SecretString>,
     pub base_url: Option<String>,
     pub models: Vec<String>,
     pub priority: u32,
+}
+
+impl std::fmt::Debug for ProviderConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProviderConfig")
+            .field("kind", &self.kind)
+            .field("api_key", &self.api_key.as_ref().map(|_| "[REDACTED]"))
+            .field("base_url", &self.base_url)
+            .field("models", &self.models)
+            .field("priority", &self.priority)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -125,6 +147,7 @@ impl Config {
                     v.split(',')
                         .map(|s| s.trim().to_string())
                         .filter(|s| !s.is_empty())
+                        .map(SecretString::from)
                         .collect()
                 })
                 .unwrap_or_default(),
@@ -193,7 +216,8 @@ impl Config {
             // A provider is configured if it has an API key set (or for ollama, a BASE_URL)
             let api_key = env::var(format!("{}_API_KEY", prefix))
                 .ok()
-                .filter(|s| !s.is_empty());
+                .filter(|s| !s.is_empty())
+                .map(SecretString::from);
             let base_url = env::var(format!("{}_BASE_URL", prefix))
                 .ok()
                 .filter(|s| !s.is_empty());

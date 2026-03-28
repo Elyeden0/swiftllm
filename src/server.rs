@@ -26,6 +26,7 @@ use crate::providers::openai::OpenAiProvider;
 use crate::providers::together::TogetherProvider;
 use crate::providers::types::ChatRequest;
 use crate::providers::{Provider, ProviderError};
+use secrecy::ExposeSecret;
 
 /// Shared application state
 pub struct AppState {
@@ -43,30 +44,54 @@ impl AppState {
         for (name, provider_config) in &config.providers {
             let provider: Arc<dyn Provider> = match provider_config.kind {
                 ProviderKind::Openai => Arc::new(OpenAiProvider::new(
-                    provider_config.api_key.clone().unwrap_or_default(),
+                    provider_config
+                        .api_key
+                        .as_ref()
+                        .map(|s| s.expose_secret().to_string())
+                        .unwrap_or_default(),
                     provider_config.base_url.clone(),
                 )),
                 ProviderKind::Anthropic => Arc::new(AnthropicProvider::new(
-                    provider_config.api_key.clone().unwrap_or_default(),
+                    provider_config
+                        .api_key
+                        .as_ref()
+                        .map(|s| s.expose_secret().to_string())
+                        .unwrap_or_default(),
                     provider_config.base_url.clone(),
                 )),
                 ProviderKind::Gemini => Arc::new(GeminiProvider::new(
-                    provider_config.api_key.clone().unwrap_or_default(),
+                    provider_config
+                        .api_key
+                        .as_ref()
+                        .map(|s| s.expose_secret().to_string())
+                        .unwrap_or_default(),
                     provider_config.base_url.clone(),
                 )),
                 ProviderKind::Mistral => Arc::new(MistralProvider::new(
-                    provider_config.api_key.clone().unwrap_or_default(),
+                    provider_config
+                        .api_key
+                        .as_ref()
+                        .map(|s| s.expose_secret().to_string())
+                        .unwrap_or_default(),
                     provider_config.base_url.clone(),
                 )),
                 ProviderKind::Ollama => {
                     Arc::new(OllamaProvider::new(provider_config.base_url.clone()))
                 }
                 ProviderKind::Groq => Arc::new(GroqProvider::new(
-                    provider_config.api_key.clone().unwrap_or_default(),
+                    provider_config
+                        .api_key
+                        .as_ref()
+                        .map(|s| s.expose_secret().to_string())
+                        .unwrap_or_default(),
                     provider_config.base_url.clone(),
                 )),
                 ProviderKind::Together => Arc::new(TogetherProvider::new(
-                    provider_config.api_key.clone().unwrap_or_default(),
+                    provider_config
+                        .api_key
+                        .as_ref()
+                        .map(|s| s.expose_secret().to_string())
+                        .unwrap_or_default(),
                     provider_config.base_url.clone(),
                 )),
                 ProviderKind::Bedrock => {
@@ -233,7 +258,13 @@ async fn chat_completions(
             .and_then(|v| v.strip_prefix("Bearer "));
 
         match provided_key {
-            Some(key) if state.config.auth.api_keys.contains(&key.to_string()) => {}
+            Some(key)
+                if state
+                    .config
+                    .auth
+                    .api_keys
+                    .iter()
+                    .any(|k| k.expose_secret() == key) => {}
             _ => {
                 return Err((
                     StatusCode::UNAUTHORIZED,
