@@ -56,6 +56,42 @@ pub struct FunctionCallDelta {
     pub arguments: Option<String>,
 }
 
+// ── Structured output / response format ────────────────────────────────────
+
+/// The type of response format requested.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ResponseFormatType {
+    Text,
+    JsonObject,
+    JsonSchema,
+}
+
+/// A JSON Schema definition used with `json_schema` response format.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsonSchemaFormat {
+    /// A name for the schema (required by OpenAI).
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// The JSON Schema object itself.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schema: Option<serde_json::Value>,
+    /// Whether to enable strict schema adherence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strict: Option<bool>,
+}
+
+/// OpenAI-compatible `response_format` parameter.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResponseFormat {
+    #[serde(rename = "type")]
+    pub format_type: ResponseFormatType,
+    /// Present only when `format_type` is `json_schema`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub json_schema: Option<JsonSchemaFormat>,
+}
+
 // ── Chat completion request ────────────────────────────────────────────────
 
 /// OpenAI-compatible chat completion request
@@ -83,6 +119,9 @@ pub struct ChatRequest {
     /// Controls tool usage: "auto", "none", "required", or a specific function.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_choice: Option<serde_json::Value>,
+    /// Structured output / JSON mode configuration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<ResponseFormat>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

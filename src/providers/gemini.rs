@@ -5,7 +5,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error};
 
-use super::types::{ChatRequest, ChatResponse, StreamChunk, Usage};
+use super::types::{ChatRequest, ChatResponse, ResponseFormatType, StreamChunk, Usage};
 use super::{Provider, ProviderError};
 
 pub struct GeminiProvider {
@@ -61,6 +61,10 @@ struct GenerationConfig {
     max_output_tokens: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stop_sequences: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_mime_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_schema: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -117,17 +121,36 @@ fn to_gemini_request(req: &ChatRequest) -> GeminiRequest {
         }
     }
 
-    let generation_config =
-        if req.temperature.is_some() || req.top_p.is_some() || req.max_tokens.is_some() {
-            Some(GenerationConfig {
-                temperature: req.temperature,
-                top_p: req.top_p,
-                max_output_tokens: req.max_tokens,
-                stop_sequences: req.stop.clone(),
-            })
-        } else {
-            None
-        };
+    // Translate response_format to Gemini's responseMimeType / responseSchema
+    let (response_mime_type, response_schema) = match &req.response_format {
+        Some(rf) => match rf.format_type {
+            ResponseFormatType::JsonObject => (Some("application/json".to_string()), None),
+            ResponseFormatType::JsonSchema => {
+                let schema = rf.json_schema.as_ref().and_then(|js| js.schema.clone());
+                (Some("application/json".to_string()), schema)
+            }
+            ResponseFormatType::Text => (None, None),
+        },
+        None => (None, None),
+    };
+
+    let needs_config = req.temperature.is_some()
+        || req.top_p.is_some()
+        || req.max_tokens.is_some()
+        || response_mime_type.is_some();
+
+    let generation_config = if needs_config {
+        Some(GenerationConfig {
+            temperature: req.temperature,
+            top_p: req.top_p,
+            max_output_tokens: req.max_tokens,
+            stop_sequences: req.stop.clone(),
+            response_mime_type,
+            response_schema,
+        })
+    } else {
+        None
+    };
 
     GeminiRequest {
         contents,

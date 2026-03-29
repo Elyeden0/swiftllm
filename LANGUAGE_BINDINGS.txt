@@ -35,19 +35,394 @@ Build it with:
   resp = completion("gpt-4o-mini", "Hello!", api_key="sk-...")
   print(resp.content)
 
+  Publishing to PyPI:
+    pip install maturin
+    maturin publish --features python
+    # Requires a PyPI account and API token at https://pypi.org
+    # Set token via: maturin publish --token pypi-AgEI...
+
 
 ===========================================================================
-  2. NODE.JS / TYPESCRIPT  (first-class support via NAPI-RS, coming soon)
+  2. JAVASCRIPT / TYPESCRIPT  (first-class support via NAPI-RS)
 ===========================================================================
 
   npm install swiftllm
 
-  import { completion } from 'swiftllm';
+  -------------------------------------------------------------------------
+  2a. Basic usage (ESM — Node.js, Bun, Deno)
+  -------------------------------------------------------------------------
 
+  import { SwiftLLM, completion } from 'swiftllm';
+
+  // One-liner
   const resp = await completion("gpt-4o-mini", "Hello!", {
     apiKey: "sk-..."
   });
   console.log(resp.content);
+
+  // Object-oriented
+  const llm = new SwiftLLM();
+  llm.addProvider("openai", { apiKey: "sk-..." });
+  const result = await llm.completion("gpt-4o-mini", "Hello!");
+  console.log(result.content);
+
+  -------------------------------------------------------------------------
+  2b. CommonJS (legacy Node.js)
+  -------------------------------------------------------------------------
+
+  const { SwiftLLM, completion } = require('swiftllm');
+
+  async function main() {
+    const resp = await completion("gpt-4o-mini", "Hello!", {
+      apiKey: process.env.OPENAI_API_KEY
+    });
+    console.log(resp.content);
+  }
+  main();
+
+  -------------------------------------------------------------------------
+  2c. Express.js
+  -------------------------------------------------------------------------
+
+  import express from 'express';
+  import { SwiftLLM } from 'swiftllm';
+
+  const app = express();
+  app.use(express.json());
+
+  const llm = new SwiftLLM();
+  llm.addProvider("openai", { apiKey: process.env.OPENAI_API_KEY });
+
+  app.post('/api/chat', async (req, res) => {
+    try {
+      const { model, message } = req.body;
+      const resp = await llm.completion(model, message);
+      res.json(resp);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.listen(3000, () => console.log('Listening on :3000'));
+
+  -------------------------------------------------------------------------
+  2d. Fastify
+  -------------------------------------------------------------------------
+
+  import Fastify from 'fastify';
+  import { SwiftLLM } from 'swiftllm';
+
+  const fastify = Fastify({ logger: true });
+  const llm = new SwiftLLM();
+  llm.addProvider("openai", { apiKey: process.env.OPENAI_API_KEY });
+
+  fastify.post('/chat', async (request, reply) => {
+    const { model, message } = request.body;
+    const resp = await llm.completion(model, message);
+    return resp;
+  });
+
+  fastify.listen({ port: 3000 });
+
+  -------------------------------------------------------------------------
+  2e. Hono  (works on Node, Bun, Deno, Cloudflare Workers)
+  -------------------------------------------------------------------------
+
+  import { Hono } from 'hono';
+  import { SwiftLLM } from 'swiftllm';
+
+  const app = new Hono();
+  const llm = new SwiftLLM();
+  llm.addProvider("openai", { apiKey: process.env.OPENAI_API_KEY });
+
+  app.post('/chat', async (c) => {
+    const { model, message } = await c.req.json();
+    const resp = await llm.completion(model, message);
+    return c.json(resp);
+  });
+
+  export default app;
+
+  -------------------------------------------------------------------------
+  2f. Next.js  (App Router — Route Handler)
+  -------------------------------------------------------------------------
+
+  // app/api/chat/route.ts
+  import { SwiftLLM } from 'swiftllm';
+  import { NextRequest, NextResponse } from 'next/server';
+
+  const llm = new SwiftLLM();
+  llm.addProvider("openai", { apiKey: process.env.OPENAI_API_KEY! });
+
+  export async function POST(req: NextRequest) {
+    const { model, message } = await req.json();
+    const resp = await llm.completion(model, message);
+    return NextResponse.json(resp);
+  }
+
+  -------------------------------------------------------------------------
+  2g. Next.js  (Pages Router — API Route)
+  -------------------------------------------------------------------------
+
+  // pages/api/chat.ts
+  import type { NextApiRequest, NextApiResponse } from 'next';
+  import { SwiftLLM } from 'swiftllm';
+
+  const llm = new SwiftLLM();
+  llm.addProvider("openai", { apiKey: process.env.OPENAI_API_KEY! });
+
+  export default async function handler(
+    req: NextApiRequest,
+    res: NextApiResponse
+  ) {
+    const { model, message } = req.body;
+    const resp = await llm.completion(model, message);
+    res.status(200).json(resp);
+  }
+
+  -------------------------------------------------------------------------
+  2h. Nuxt 3  (Server Route)
+  -------------------------------------------------------------------------
+
+  // server/api/chat.post.ts
+  import { SwiftLLM } from 'swiftllm';
+
+  const llm = new SwiftLLM();
+  llm.addProvider("openai", {
+    apiKey: useRuntimeConfig().openaiApiKey
+  });
+
+  export default defineEventHandler(async (event) => {
+    const { model, message } = await readBody(event);
+    const resp = await llm.completion(model, message);
+    return resp;
+  });
+
+  -------------------------------------------------------------------------
+  2i. SvelteKit  (Server Endpoint)
+  -------------------------------------------------------------------------
+
+  // src/routes/api/chat/+server.ts
+  import { json } from '@sveltejs/kit';
+  import { SwiftLLM } from 'swiftllm';
+  import { OPENAI_API_KEY } from '$env/static/private';
+  import type { RequestHandler } from './$types';
+
+  const llm = new SwiftLLM();
+  llm.addProvider("openai", { apiKey: OPENAI_API_KEY });
+
+  export const POST: RequestHandler = async ({ request }) => {
+    const { model, message } = await request.json();
+    const resp = await llm.completion(model, message);
+    return json(resp);
+  };
+
+  -------------------------------------------------------------------------
+  2j. Remix  (Action / Loader)
+  -------------------------------------------------------------------------
+
+  // app/routes/api.chat.tsx
+  import { json, type ActionFunctionArgs } from '@remix-run/node';
+  import { SwiftLLM } from 'swiftllm';
+
+  const llm = new SwiftLLM();
+  llm.addProvider("openai", { apiKey: process.env.OPENAI_API_KEY! });
+
+  export async function action({ request }: ActionFunctionArgs) {
+    const { model, message } = await request.json();
+    const resp = await llm.completion(model, message);
+    return json(resp);
+  }
+
+  -------------------------------------------------------------------------
+  2k. Deno  (native)
+  -------------------------------------------------------------------------
+
+  // Deno supports npm packages via npm: specifiers
+  import { SwiftLLM } from 'npm:swiftllm';
+
+  const llm = new SwiftLLM();
+  llm.addProvider("openai", { apiKey: Deno.env.get("OPENAI_API_KEY")! });
+
+  Deno.serve({ port: 3000 }, async (req) => {
+    if (req.method === "POST") {
+      const { model, message } = await req.json();
+      const resp = await llm.completion(model, message);
+      return new Response(JSON.stringify(resp), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return new Response("SwiftLLM Deno server", { status: 200 });
+  });
+
+  Run: deno run --allow-net --allow-env --allow-ffi server.ts
+
+  -------------------------------------------------------------------------
+  2l. Bun  (native)
+  -------------------------------------------------------------------------
+
+  import { SwiftLLM } from 'swiftllm';
+
+  const llm = new SwiftLLM();
+  llm.addProvider("openai", { apiKey: Bun.env.OPENAI_API_KEY! });
+
+  Bun.serve({
+    port: 3000,
+    async fetch(req) {
+      if (req.method === "POST") {
+        const { model, message } = await req.json();
+        const resp = await llm.completion(model, message);
+        return Response.json(resp);
+      }
+      return new Response("SwiftLLM Bun server");
+    },
+  });
+
+  Run: bun run server.ts
+
+  -------------------------------------------------------------------------
+  2m. Koa
+  -------------------------------------------------------------------------
+
+  import Koa from 'koa';
+  import bodyParser from 'koa-bodyparser';
+  import { SwiftLLM } from 'swiftllm';
+
+  const app = new Koa();
+  app.use(bodyParser());
+
+  const llm = new SwiftLLM();
+  llm.addProvider("openai", { apiKey: process.env.OPENAI_API_KEY });
+
+  app.use(async (ctx) => {
+    if (ctx.method === 'POST' && ctx.path === '/chat') {
+      const { model, message } = ctx.request.body;
+      const resp = await llm.completion(model, message);
+      ctx.body = resp;
+    }
+  });
+
+  app.listen(3000);
+
+  -------------------------------------------------------------------------
+  2n. NestJS
+  -------------------------------------------------------------------------
+
+  // llm.service.ts
+  import { Injectable, OnModuleInit } from '@nestjs/common';
+  import { SwiftLLM } from 'swiftllm';
+
+  @Injectable()
+  export class LLMService implements OnModuleInit {
+    private llm: SwiftLLM;
+
+    onModuleInit() {
+      this.llm = new SwiftLLM();
+      this.llm.addProvider("openai", {
+        apiKey: process.env.OPENAI_API_KEY
+      });
+    }
+
+    async completion(model: string, message: string) {
+      return this.llm.completion(model, message);
+    }
+  }
+
+  // llm.controller.ts
+  import { Controller, Post, Body } from '@nestjs/common';
+  import { LLMService } from './llm.service';
+
+  @Controller('chat')
+  export class LLMController {
+    constructor(private readonly llmService: LLMService) {}
+
+    @Post()
+    async chat(@Body() body: { model: string; message: string }) {
+      return this.llmService.completion(body.model, body.message);
+    }
+  }
+
+  -------------------------------------------------------------------------
+  2o. Elysia  (Bun-native framework)
+  -------------------------------------------------------------------------
+
+  import { Elysia } from 'elysia';
+  import { SwiftLLM } from 'swiftllm';
+
+  const llm = new SwiftLLM();
+  llm.addProvider("openai", { apiKey: Bun.env.OPENAI_API_KEY! });
+
+  new Elysia()
+    .post('/chat', async ({ body }) => {
+      const { model, message } = body;
+      return llm.completion(model, message);
+    })
+    .listen(3000);
+
+  -------------------------------------------------------------------------
+  2p. AdonisJS
+  -------------------------------------------------------------------------
+
+  // app/controllers/chat_controller.ts
+  import type { HttpContext } from '@adonisjs/core/http';
+  import { SwiftLLM } from 'swiftllm';
+
+  const llm = new SwiftLLM();
+  llm.addProvider("openai", { apiKey: process.env.OPENAI_API_KEY! });
+
+  export default class ChatController {
+    async handle({ request, response }: HttpContext) {
+      const { model, message } = request.only(['model', 'message']);
+      const resp = await llm.completion(model, message);
+      return response.json(resp);
+    }
+  }
+
+  // start/routes.ts
+  // router.post('/chat', [ChatController])
+
+  -------------------------------------------------------------------------
+  2q. tRPC  (type-safe API layer)
+  -------------------------------------------------------------------------
+
+  // server/routers/llm.ts
+  import { z } from 'zod';
+  import { publicProcedure, router } from '../trpc';
+  import { SwiftLLM } from 'swiftllm';
+
+  const llm = new SwiftLLM();
+  llm.addProvider("openai", { apiKey: process.env.OPENAI_API_KEY! });
+
+  export const llmRouter = router({
+    chat: publicProcedure
+      .input(z.object({
+        model: z.string(),
+        message: z.string(),
+      }))
+      .mutation(async ({ input }) => {
+        return llm.completion(input.model, input.message);
+      }),
+  });
+
+  -------------------------------------------------------------------------
+  TypeScript types  (included with the package)
+  -------------------------------------------------------------------------
+
+  // swiftllm ships its own type definitions.
+  // Full IntelliSense and autocomplete work out of the box.
+
+  import type { CompletionResponse, SwiftLLMOptions } from 'swiftllm';
+
+  -------------------------------------------------------------------------
+  Publishing to npm
+  -------------------------------------------------------------------------
+
+  npm login
+  npm publish
+  # Requires an npm account at https://www.npmjs.com
+  # For scoped packages: npm publish --access public
+  # NAPI-RS generates platform-specific native modules automatically
+  # Pre-built binaries for linux-x64, darwin-arm64, win32-x64, etc.
 
 
 ===========================================================================
@@ -56,9 +431,15 @@ Build it with:
 
   #include "swiftllm.h"
   #include <stdio.h>
+  #include <stdlib.h>
 
   int main() {
       SwiftLLMHandle *llm = swiftllm_create();
+      if (!llm) {
+          fprintf(stderr, "Failed to create SwiftLLM instance\n");
+          return 1;
+      }
+
       swiftllm_add_provider(llm, "openai", "sk-...", NULL);
 
       char *response = swiftllm_completion(llm, "gpt-4o-mini", "Hello!");
@@ -72,8 +453,14 @@ Build it with:
   }
 
   Compile:
-    gcc -o example example.c -L./target/release -lswiftllm
+    gcc -o example example.c -I./include -L./target/release -lswiftllm
     LD_LIBRARY_PATH=./target/release ./example
+
+  Distribution:
+    Ship libswiftllm.so/.dylib/.dll and swiftllm.h together.
+    For system-wide install: copy the library to /usr/local/lib and
+    the header to /usr/local/include, then run ldconfig (Linux).
+    Consider packaging via vcpkg or Conan for C/C++ ecosystems.
 
 
 ===========================================================================
@@ -82,13 +469,21 @@ Build it with:
 
   #include "swiftllm.h"
   #include <iostream>
-  #include <memory>
+  #include <stdexcept>
+  #include <string>
 
   // RAII wrapper
-  struct SwiftLLM {
+  class SwiftLLM {
       SwiftLLMHandle *handle;
-      SwiftLLM() : handle(swiftllm_create()) {}
+  public:
+      SwiftLLM() : handle(swiftllm_create()) {
+          if (!handle) throw std::runtime_error("Failed to create SwiftLLM");
+      }
       ~SwiftLLM() { swiftllm_destroy(handle); }
+
+      // Non-copyable
+      SwiftLLM(const SwiftLLM&) = delete;
+      SwiftLLM& operator=(const SwiftLLM&) = delete;
 
       void addProvider(const char *name, const char *key) {
           swiftllm_add_provider(handle, name, key, nullptr);
@@ -104,15 +499,24 @@ Build it with:
   };
 
   int main() {
-      SwiftLLM llm;
-      llm.addProvider("openai", "sk-...");
-      std::cout << llm.completion("gpt-4o-mini", "Hello!") << std::endl;
+      try {
+          SwiftLLM llm;
+          llm.addProvider("openai", "sk-...");
+          std::cout << llm.completion("gpt-4o-mini", "Hello!") << std::endl;
+      } catch (const std::exception &e) {
+          std::cerr << e.what() << std::endl;
+          return 1;
+      }
       return 0;
   }
 
   Compile:
-    g++ -o example example.cpp -L./target/release -lswiftllm
+    g++ -std=c++17 -o example example.cpp -I./include -L./target/release -lswiftllm
     LD_LIBRARY_PATH=./target/release ./example
+
+  Distribution:
+    Same as C — ship the shared library + header. Works with vcpkg/Conan.
+    For CMake projects, provide a FindSwiftLLM.cmake or swiftllm-config.cmake.
 
 
 ===========================================================================
@@ -134,6 +538,9 @@ Build it with:
 
   func main() {
       handle := C.swiftllm_create()
+      if handle == nil {
+          panic("Failed to create SwiftLLM instance")
+      }
       defer C.swiftllm_destroy(handle)
 
       name := C.CString("openai")
@@ -158,6 +565,12 @@ Build it with:
   Build:
     CGO_LDFLAGS="-L./target/release" go build -o example main.go
     LD_LIBRARY_PATH=./target/release ./example
+
+  Publishing to Go modules:
+    Wrap the cgo code in a Go package (e.g. github.com/Elyeden0/swiftllm-go).
+    Tag a release: git tag v0.4.0 && git push --tags
+    Users install via: go get github.com/Elyeden0/swiftllm-go
+    Note: users still need the compiled libswiftllm shared library at runtime.
 
 
 ===========================================================================
@@ -235,6 +648,13 @@ Build it with:
     java -Djava.library.path=./target/release \
          --enable-native-access=ALL-UNNAMED SwiftLLMExample
 
+  Publishing to Maven Central:
+    Wrap the Panama FFI code into a JAR with Gradle or Maven.
+    Publish via Sonatype OSSRH: https://central.sonatype.org
+    Requires a Sonatype account, GPG signing, and pom.xml metadata.
+    Bundle the native library inside the JAR under META-INF/native/
+    and extract at runtime for zero-config usage.
+
 
 ===========================================================================
   7. C#  (via P/Invoke)
@@ -247,24 +667,34 @@ Build it with:
       [DllImport("swiftllm")] static extern IntPtr swiftllm_create();
       [DllImport("swiftllm")] static extern void swiftllm_destroy(IntPtr h);
       [DllImport("swiftllm")] static extern int swiftllm_add_provider(
-          IntPtr h, string name, string apiKey, string baseUrl);
+          IntPtr h, string name, string apiKey, string? baseUrl);
       [DllImport("swiftllm")] static extern IntPtr swiftllm_completion(
           IntPtr h, string model, string prompt);
       [DllImport("swiftllm")] static extern void swiftllm_free_string(IntPtr p);
 
       private IntPtr handle;
 
-      public SwiftLLM() { handle = swiftllm_create(); }
-      public void Dispose() { swiftllm_destroy(handle); }
+      public SwiftLLM() {
+          handle = swiftllm_create();
+          if (handle == IntPtr.Zero)
+              throw new InvalidOperationException("Failed to create SwiftLLM");
+      }
+
+      public void Dispose() {
+          if (handle != IntPtr.Zero) {
+              swiftllm_destroy(handle);
+              handle = IntPtr.Zero;
+          }
+      }
 
       public void AddProvider(string name, string key) {
           swiftllm_add_provider(handle, name, key, null);
       }
 
-      public string Completion(string model, string prompt) {
+      public string? Completion(string model, string prompt) {
           IntPtr ptr = swiftllm_completion(handle, model, prompt);
           if (ptr == IntPtr.Zero) return null;
-          string result = Marshal.PtrToStringAnsi(ptr);
+          string result = Marshal.PtrToStringAnsi(ptr)!;
           swiftllm_free_string(ptr);
           return result;
       }
@@ -281,6 +711,14 @@ Build it with:
   Build:
     Copy libswiftllm.so / swiftllm.dll to your project output folder.
     dotnet run
+
+  Publishing to NuGet:
+    Create a .csproj class library wrapping the P/Invoke calls.
+    Include native libraries in runtimes/linux-x64/native/ etc.
+    dotnet pack -c Release
+    dotnet nuget push bin/Release/SwiftLLM.*.nupkg \
+        --api-key YOUR_KEY --source https://api.nuget.org/v3/index.json
+    Requires a NuGet account at https://www.nuget.org
 
 
 ===========================================================================
@@ -302,6 +740,8 @@ Build it with:
   end
 
   handle = SwiftLLMLib.swiftllm_create
+  raise "Failed to create SwiftLLM" if handle.null?
+
   SwiftLLMLib.swiftllm_add_provider(handle, "openai", "sk-...", nil)
 
   ptr = SwiftLLMLib.swiftllm_completion(handle, "gpt-4o-mini", "Hello!")
@@ -317,16 +757,31 @@ Build it with:
     gem install ffi
     ruby example.rb
 
+  Publishing to RubyGems:
+    Wrap in a gem with a .gemspec. Bundle the shared library.
+    gem build swiftllm.gemspec
+    gem push swiftllm-0.4.0.gem
+    Requires a RubyGems account at https://rubygems.org
+
 
 ===========================================================================
   9. PHP  (via FFI, PHP 7.4+)
 ===========================================================================
 
+  Note: PHP FFI::cdef does NOT process C preprocessor directives.
+  You must provide plain declarations, not file_get_contents() on the header.
+
   <?php
-  $ffi = FFI::cdef(
-      file_get_contents("include/swiftllm.h"),
-      "./target/release/libswiftllm.so"
-  );
+  $ffi = FFI::cdef("
+      typedef struct SwiftLLMHandle SwiftLLMHandle;
+      SwiftLLMHandle *swiftllm_create(void);
+      void swiftllm_destroy(SwiftLLMHandle *handle);
+      int swiftllm_add_provider(SwiftLLMHandle *handle,
+          const char *name, const char *api_key, const char *base_url);
+      char *swiftllm_completion(SwiftLLMHandle *handle,
+          const char *model, const char *prompt);
+      void swiftllm_free_string(char *ptr);
+  ", "./target/release/libswiftllm.so");
 
   $handle = $ffi->swiftllm_create();
   $ffi->swiftllm_add_provider($handle, "openai", "sk-...", null);
@@ -342,6 +797,12 @@ Build it with:
 
   Run:
     php -d ffi.enable=1 example.php
+
+  Publishing to Packagist:
+    Wrap in a Composer package with a composer.json.
+    Register at https://packagist.org and link your GitHub repo.
+    Tag a release: git tag v0.4.0 && git push --tags
+    Users install via: composer require elyeden0/swiftllm-php
 
 
 ===========================================================================
@@ -363,10 +824,15 @@ Build it with:
   # Usage:
   {:ok, json} = SwiftLLM.Native.completion("gpt-4o-mini", "Hello!", "sk-...")
   response = Jason.decode!(json)
-  IO.puts(response["choices"] |> hd() |> get_in(["message", "content"]))
+  IO.puts(get_in(response, ["choices", Access.at(0), "message", "content"]))
 
   # Alternative: use the C FFI via a Port process.
   # See Elixir docs on Ports and NIFs for details.
+
+  Publishing to Hex:
+    Add hex metadata to mix.exs (description, package, links).
+    mix hex.publish
+    Requires a Hex account at https://hex.pm
 
 
 ===========================================================================
@@ -374,18 +840,28 @@ Build it with:
 ===========================================================================
 
   // In your Package.swift, add a system library target pointing to the header:
-  // .systemLibrary(name: "CSwiftLLM", path: "include")
+  // .systemLibrary(name: "CSwiftLLM", path: "Sources/CSwiftLLM")
+  // and create Sources/CSwiftLLM/module.modulemap with:
+  //   module CSwiftLLM {
+  //       header "swiftllm.h"
+  //       link "swiftllm"
+  //       export *
+  //   }
 
   import CSwiftLLM
 
   class LLM {
       private var handle: OpaquePointer?
 
-      init() { handle = swiftllm_create() }
+      init?() {
+          guard let h = swiftllm_create() else { return nil }
+          handle = h
+      }
       deinit { swiftllm_destroy(handle) }
 
-      func addProvider(_ name: String, apiKey: String) {
-          swiftllm_add_provider(handle, name, apiKey, nil)
+      @discardableResult
+      func addProvider(_ name: String, apiKey: String) -> Int32 {
+          return swiftllm_add_provider(handle, name, apiKey, nil)
       }
 
       func completion(model: String, prompt: String) -> String? {
@@ -398,11 +874,22 @@ Build it with:
       }
   }
 
-  let llm = LLM()
+  guard let llm = LLM() else {
+      fatalError("Failed to create SwiftLLM instance")
+  }
   llm.addProvider("openai", apiKey: "sk-...")
   if let response = llm.completion(model: "gpt-4o-mini", prompt: "Hello!") {
       print(response)
   }
+
+  Build:
+    swift build -Xlinker -L./target/release
+    LD_LIBRARY_PATH=./target/release swift run
+
+  Publishing to Swift Package Index:
+    Host the wrapper as a Swift package on GitHub with a Package.swift.
+    Submit to https://swiftpackageindex.com for discovery.
+    Users add it via: .package(url: "https://github.com/...", from: "0.4.0")
 
 
 ===========================================================================
@@ -442,6 +929,12 @@ Build it with:
     Copy libswiftllm.so to java.library.path
     kotlin -Djava.library.path=./target/release ExampleKt
 
+  Publishing to Maven Central:
+    Same process as Java — publish via Sonatype OSSRH.
+    Create a Gradle project wrapping the JNA interface.
+    ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository
+    Requires GPG signing and Sonatype credentials.
+
 
 ===========================================================================
   13. ZIG
@@ -458,16 +951,23 @@ Build it with:
 
       _ = c.swiftllm_add_provider(handle, "openai", "sk-...", null);
 
-      const resp = c.swiftllm_completion(handle, "gpt-4o-mini", "Hello!");
+      const resp: ?[*:0]u8 = @ptrCast(
+          c.swiftllm_completion(handle, "gpt-4o-mini", "Hello!") orelse return
+      );
       if (resp) |ptr| {
-          const slice = std.mem.span(ptr);
-          std.debug.print("{s}\n", .{slice});
-          c.swiftllm_free_string(ptr);
+          std.debug.print("{s}\n", .{std.mem.sliceTo(ptr, 0)});
+          c.swiftllm_free_string(@ptrCast(ptr));
       }
   }
 
   Build:
-    zig build-exe example.zig -I./include -L./target/release -lswiftllm
+    zig build-exe example.zig -I./include -L./target/release -lswiftllm -lc
+    LD_LIBRARY_PATH=./target/release ./example
+
+  Distribution:
+    Zig packages use build.zig.zon. Create a wrapper package that
+    vendors the header and links the shared library.
+    Host on GitHub; users add via: zig fetch --save <url>
 
 
 ===========================================================================
@@ -487,6 +987,468 @@ Build it with:
       // and call providers directly. See src/server.rs for the full API.
   }
 
+  Publishing to crates.io:
+    cargo login  # paste your API token from https://crates.io
+    cargo publish
+    Users add via: cargo add swiftllm
+
+
+===========================================================================
+  15. SCALA  (via JNA or Panama FFI)
+===========================================================================
+
+  // build.sbt: libraryDependencies += "net.java.dev.jna" % "jna" % "5.14.0"
+
+  import com.sun.jna.{Library, Native, Pointer}
+
+  trait SwiftLLMLib extends Library {
+    def swiftllm_create(): Pointer
+    def swiftllm_destroy(handle: Pointer): Unit
+    def swiftllm_add_provider(h: Pointer, name: String, key: String, url: String): Int
+    def swiftllm_completion(h: Pointer, model: String, prompt: String): Pointer
+    def swiftllm_free_string(ptr: Pointer): Unit
+  }
+
+  object Main extends App {
+    val lib = Native.load("swiftllm", classOf[SwiftLLMLib])
+    val handle = lib.swiftllm_create()
+
+    lib.swiftllm_add_provider(handle, "openai", "sk-...", null)
+
+    val resp = lib.swiftllm_completion(handle, "gpt-4o-mini", "Hello!")
+    if (resp != null) {
+      println(resp.getString(0))
+      lib.swiftllm_free_string(resp)
+    }
+
+    lib.swiftllm_destroy(handle)
+  }
+
+  Build:
+    sbt run
+    # Set -Djava.library.path=./target/release in sbt opts or build.sbt
+
+  Publishing to Maven Central:
+    Configure sbt-sonatype and sbt-pgp plugins.
+    sbt publishSigned && sbt sonatypeBundleRelease
+    Requires Sonatype OSSRH credentials and GPG key.
+
+
+===========================================================================
+  16. HASKELL  (via FFI)
+===========================================================================
+
+  {-# LANGUAGE ForeignFunctionInterface #-}
+
+  module Main where
+
+  import Foreign
+  import Foreign.C.String
+  import Foreign.C.Types
+
+  data SwiftLLMHandle
+
+  foreign import ccall "swiftllm_create"
+      c_swiftllm_create :: IO (Ptr SwiftLLMHandle)
+
+  foreign import ccall "swiftllm_destroy"
+      c_swiftllm_destroy :: Ptr SwiftLLMHandle -> IO ()
+
+  foreign import ccall "swiftllm_add_provider"
+      c_swiftllm_add_provider :: Ptr SwiftLLMHandle -> CString -> CString
+                              -> CString -> IO CInt
+
+  foreign import ccall "swiftllm_completion"
+      c_swiftllm_completion :: Ptr SwiftLLMHandle -> CString -> CString
+                            -> IO CString
+
+  foreign import ccall "swiftllm_free_string"
+      c_swiftllm_free_string :: CString -> IO ()
+
+  main :: IO ()
+  main = do
+      handle <- c_swiftllm_create
+      if handle == nullPtr
+          then putStrLn "Failed to create SwiftLLM"
+          else do
+              withCString "openai" $ \name ->
+                  withCString "sk-..." $ \key ->
+                      c_swiftllm_add_provider handle name key nullPtr
+              resp <- withCString "gpt-4o-mini" $ \model ->
+                  withCString "Hello!" $ \prompt ->
+                      c_swiftllm_completion handle model prompt
+              if resp == nullPtr
+                  then putStrLn "Completion failed"
+                  else do
+                      result <- peekCString resp
+                      putStrLn result
+                      c_swiftllm_free_string resp
+              c_swiftllm_destroy handle
+
+  Build (with cabal):
+    # In your .cabal file, add: extra-libraries: swiftllm
+    cabal run -- +RTS -V0
+    # Or with ghc directly:
+    ghc -o example Example.hs -lswiftllm -L./target/release
+    LD_LIBRARY_PATH=./target/release ./example
+
+  Publishing to Hackage:
+    Create a .cabal package with the FFI wrapper.
+    cabal sdist && cabal upload dist-newstyle/sdist/swiftllm-*.tar.gz
+    Requires a Hackage account at https://hackage.haskell.org
+
+
+===========================================================================
+  17. OCAML  (via ctypes)
+===========================================================================
+
+  (* Install: opam install ctypes ctypes-foreign *)
+
+  open Ctypes
+  open Foreign
+
+  let lib = Dl.dlopen ~filename:"./target/release/libswiftllm.so"
+                      ~flags:[Dl.RTLD_NOW]
+
+  let swiftllm_create =
+    foreign ~from:lib "swiftllm_create" (void @-> returning (ptr void))
+
+  let swiftllm_destroy =
+    foreign ~from:lib "swiftllm_destroy" (ptr void @-> returning void)
+
+  let swiftllm_add_provider =
+    foreign ~from:lib "swiftllm_add_provider"
+      (ptr void @-> string @-> string @-> ptr_opt char @-> returning int)
+
+  let swiftllm_completion =
+    foreign ~from:lib "swiftllm_completion"
+      (ptr void @-> string @-> string @-> returning (ptr_opt char))
+
+  let swiftllm_free_string =
+    foreign ~from:lib "swiftllm_free_string" (ptr char @-> returning void)
+
+  let () =
+    let handle = swiftllm_create () in
+    if is_null handle then
+      failwith "Failed to create SwiftLLM"
+    else begin
+      ignore (swiftllm_add_provider handle "openai" "sk-..." None);
+      (match swiftllm_completion handle "gpt-4o-mini" "Hello!" with
+       | None -> print_endline "Completion failed"
+       | Some ptr ->
+           let result = coerce (ptr char) string ptr in
+           print_endline result;
+           swiftllm_free_string ptr);
+      swiftllm_destroy handle
+    end
+
+  Build:
+    ocamlfind ocamlopt -package ctypes.foreign -linkpkg example.ml -o example
+    LD_LIBRARY_PATH=./target/release ./example
+
+  Publishing to opam:
+    Create an opam package file and submit to opam-repository.
+    See: https://opam.ocaml.org/doc/Packaging.html
+
+
+===========================================================================
+  18. LUA  (via LuaJIT FFI)
+===========================================================================
+
+  -- Requires LuaJIT (not standard Lua) for the ffi module.
+  local ffi = require("ffi")
+  local json = require("cjson")  -- luarocks install lua-cjson
+
+  ffi.cdef[[
+      typedef struct SwiftLLMHandle SwiftLLMHandle;
+      SwiftLLMHandle *swiftllm_create(void);
+      void swiftllm_destroy(SwiftLLMHandle *handle);
+      int swiftllm_add_provider(SwiftLLMHandle *handle,
+          const char *name, const char *api_key, const char *base_url);
+      char *swiftllm_completion(SwiftLLMHandle *handle,
+          const char *model, const char *prompt);
+      void swiftllm_free_string(char *ptr);
+  ]]
+
+  local lib = ffi.load("./target/release/libswiftllm.so")
+
+  local handle = lib.swiftllm_create()
+  assert(handle ~= nil, "Failed to create SwiftLLM")
+
+  lib.swiftllm_add_provider(handle, "openai", "sk-...", nil)
+
+  local resp = lib.swiftllm_completion(handle, "gpt-4o-mini", "Hello!")
+  if resp ~= nil then
+      local result = ffi.string(resp)
+      local data = json.decode(result)
+      print(data.choices[1].message.content)
+      lib.swiftllm_free_string(resp)
+  end
+
+  lib.swiftllm_destroy(handle)
+
+  Run:
+    luajit example.lua
+
+  Publishing to LuaRocks:
+    Create a rockspec file (swiftllm-0.4-1.rockspec).
+    luarocks upload swiftllm-0.4-1.rockspec
+    Requires a LuaRocks account at https://luarocks.org
+
+
+===========================================================================
+  19. PERL  (via FFI::Platypus)
+===========================================================================
+
+  use strict;
+  use warnings;
+  use FFI::Platypus 2.00;
+  use JSON::PP;
+
+  my $ffi = FFI::Platypus->new(api => 2);
+  $ffi->lib('./target/release/libswiftllm.so');
+
+  $ffi->type('opaque' => 'SwiftLLMHandle');
+
+  $ffi->attach(swiftllm_create      => []
+      => 'SwiftLLMHandle');
+  $ffi->attach(swiftllm_destroy     => ['SwiftLLMHandle']
+      => 'void');
+  $ffi->attach(swiftllm_add_provider => ['SwiftLLMHandle', 'string', 'string', 'string']
+      => 'int');
+  $ffi->attach(swiftllm_completion  => ['SwiftLLMHandle', 'string', 'string']
+      => 'opaque');
+  $ffi->attach(swiftllm_free_string => ['opaque']
+      => 'void');
+
+  my $handle = swiftllm_create();
+  die "Failed to create SwiftLLM\n" unless $handle;
+
+  swiftllm_add_provider($handle, "openai", "sk-...", undef);
+
+  my $resp = swiftllm_completion($handle, "gpt-4o-mini", "Hello!");
+  if ($resp) {
+      my $str = $ffi->cast('opaque', 'string', $resp);
+      my $data = decode_json($str);
+      print $data->{choices}[0]{message}{content}, "\n";
+      swiftllm_free_string($resp);
+  }
+
+  swiftllm_destroy($handle);
+
+  Setup:
+    cpanm FFI::Platypus JSON::PP
+    perl example.pl
+
+  Publishing to CPAN:
+    Create a proper distribution with Dist::Zilla or ExtUtils::MakeMaker.
+    Upload to PAUSE: https://pause.perl.org
+    Users install via: cpanm SwiftLLM
+
+
+===========================================================================
+  20. D  (via extern(C) bindings)
+===========================================================================
+
+  import std.stdio;
+  import std.string;
+
+  extern (C) {
+      alias SwiftLLMHandle = void;
+      SwiftLLMHandle* swiftllm_create();
+      void swiftllm_destroy(SwiftLLMHandle* handle);
+      int swiftllm_add_provider(SwiftLLMHandle* handle,
+          const char* name, const char* api_key, const char* base_url);
+      char* swiftllm_completion(SwiftLLMHandle* handle,
+          const char* model, const char* prompt);
+      void swiftllm_free_string(char* ptr);
+  }
+
+  void main() {
+      auto handle = swiftllm_create();
+      if (handle is null) {
+          stderr.writeln("Failed to create SwiftLLM");
+          return;
+      }
+      scope(exit) swiftllm_destroy(handle);
+
+      swiftllm_add_provider(handle, "openai", "sk-...", null);
+
+      auto resp = swiftllm_completion(handle, "gpt-4o-mini", "Hello!");
+      if (resp !is null) {
+          writeln(fromStringz(resp));
+          swiftllm_free_string(resp);
+      }
+  }
+
+  Build:
+    dmd -of=example example.d -L-L./target/release -L-lswiftllm
+    LD_LIBRARY_PATH=./target/release ./example
+
+  Publishing to DUB:
+    Create a dub.json or dub.sdl package file.
+    Register at https://code.dlang.org and add your GitHub repo.
+    Tag a release: git tag v0.4.0 && git push --tags
+
+
+===========================================================================
+  21. NIM  (via importc pragmas)
+===========================================================================
+
+  {.passL: "-L./target/release -lswiftllm".}
+
+  type SwiftLLMHandle = pointer
+
+  proc swiftllm_create(): SwiftLLMHandle
+      {.importc, cdecl.}
+  proc swiftllm_destroy(handle: SwiftLLMHandle)
+      {.importc, cdecl.}
+  proc swiftllm_add_provider(handle: SwiftLLMHandle,
+      name, apiKey, baseUrl: cstring): cint
+      {.importc, cdecl.}
+  proc swiftllm_completion(handle: SwiftLLMHandle,
+      model, prompt: cstring): cstring
+      {.importc, cdecl.}
+  proc swiftllm_free_string(p: cstring)
+      {.importc, cdecl.}
+
+  proc main() =
+    let handle = swiftllm_create()
+    if handle.isNil:
+      echo "Failed to create SwiftLLM"
+      return
+    defer: swiftllm_destroy(handle)
+
+    discard swiftllm_add_provider(handle, "openai", "sk-...", nil)
+
+    let resp = swiftllm_completion(handle, "gpt-4o-mini", "Hello!")
+    if not resp.isNil:
+      echo $resp
+      swiftllm_free_string(resp)
+
+  main()
+
+  Build:
+    nim c -r --passL:"-L./target/release" example.nim
+    LD_LIBRARY_PATH=./target/release ./example
+
+  Publishing to Nimble:
+    Create a .nimble package file.
+    nimble publish
+    Requires a GitHub-hosted package listed at https://nimble.directory
+
+
+===========================================================================
+  22. DART  (via dart:ffi)
+===========================================================================
+
+  import 'dart:ffi';
+  import 'dart:convert';
+  import 'package:ffi/ffi.dart';
+
+  typedef SwiftllmCreateC = Pointer<Void> Function();
+  typedef SwiftllmCreateDart = Pointer<Void> Function();
+
+  typedef SwiftllmDestroyC = Void Function(Pointer<Void>);
+  typedef SwiftllmDestroyDart = void Function(Pointer<Void>);
+
+  typedef SwiftllmAddProviderC = Int32 Function(
+      Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
+  typedef SwiftllmAddProviderDart = int Function(
+      Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>);
+
+  typedef SwiftllmCompletionC = Pointer<Utf8> Function(
+      Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
+  typedef SwiftllmCompletionDart = Pointer<Utf8> Function(
+      Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>);
+
+  typedef SwiftllmFreeStringC = Void Function(Pointer<Utf8>);
+  typedef SwiftllmFreeStringDart = void Function(Pointer<Utf8>);
+
+  void main() {
+    final lib = DynamicLibrary.open('./target/release/libswiftllm.so');
+
+    final create = lib.lookupFunction<SwiftllmCreateC, SwiftllmCreateDart>(
+        'swiftllm_create');
+    final destroy = lib.lookupFunction<SwiftllmDestroyC, SwiftllmDestroyDart>(
+        'swiftllm_destroy');
+    final addProvider = lib.lookupFunction<SwiftllmAddProviderC,
+        SwiftllmAddProviderDart>('swiftllm_add_provider');
+    final completion = lib.lookupFunction<SwiftllmCompletionC,
+        SwiftllmCompletionDart>('swiftllm_completion');
+    final freeString = lib.lookupFunction<SwiftllmFreeStringC,
+        SwiftllmFreeStringDart>('swiftllm_free_string');
+
+    final handle = create();
+    if (handle == nullptr) {
+      print('Failed to create SwiftLLM');
+      return;
+    }
+
+    final name = 'openai'.toNativeUtf8();
+    final key = 'sk-...'.toNativeUtf8();
+    addProvider(handle, name, key, nullptr);
+    calloc.free(name);
+    calloc.free(key);
+
+    final model = 'gpt-4o-mini'.toNativeUtf8();
+    final prompt = 'Hello!'.toNativeUtf8();
+    final resp = completion(handle, model, prompt);
+    calloc.free(model);
+    calloc.free(prompt);
+
+    if (resp != nullptr) {
+      final json = jsonDecode(resp.toDartString());
+      print(json['choices'][0]['message']['content']);
+      freeString(resp);
+    }
+
+    destroy(handle);
+  }
+
+  Setup:
+    dart pub add ffi
+    LD_LIBRARY_PATH=./target/release dart run example.dart
+
+  Publishing to pub.dev:
+    Create a Dart/Flutter package with pubspec.yaml.
+    dart pub publish
+    Requires a Google account at https://pub.dev
+
+
+===========================================================================
+  23. ERLANG  (via NIF or Port)
+===========================================================================
+
+  %% swiftllm_nif.erl — uses the same Rustler NIF as the Elixir binding.
+  %% Alternatively, call the shared library via a Port for process isolation.
+
+  -module(swiftllm_nif).
+  -export([completion/3]).
+  -on_load(init/0).
+
+  init() ->
+      PrivDir = code:priv_dir(swiftllm),
+      erlang:load_nif(filename:join(PrivDir, "libswiftllm_nif"), 0).
+
+  completion(_Model, _Prompt, _ApiKey) ->
+      erlang:nif_error(nif_not_loaded).
+
+  %% Usage:
+  %% {ok, Json} = swiftllm_nif:completion("gpt-4o-mini", "Hello!", "sk-..."),
+  %% Data = jsone:decode(Json),
+  %% io:format("~s~n", [maps:get(<<"content">>,
+  %%     maps:get(<<"message">>, hd(maps:get(<<"choices">>, Data))))]).
+
+  Build:
+    Compile the Rustler NIF crate, then place the .so in priv/.
+    rebar3 compile && rebar3 shell
+
+  Publishing to Hex:
+    Add hex metadata to rebar.config or mix.exs.
+    rebar3 hex publish
+    Requires a Hex account at https://hex.pm
+
 
 ===========================================================================
   SUMMARY
@@ -500,14 +1462,43 @@ Build it with:
   C              | C FFI (swiftllm.h)    | Available now
   C++            | C FFI (swiftllm.h)    | Available now
   Go             | cgo + C FFI           | Available now
-  Java           | Panama FFI / JNA      | Available now
+  Java           | Panama FFI            | Available now
   C#             | P/Invoke              | Available now
   Ruby           | FFI gem               | Available now
-  PHP            | PHP FFI extension     | Available now
-  Elixir         | Rustler NIF / Port    | Available now
+  PHP            | PHP FFI               | Available now
+  Elixir         | Rustler NIF           | Available now
   Swift          | C interop             | Available now
   Kotlin         | JNA                   | Available now
   Zig            | @cImport              | Available now
+  Scala          | JNA                   | Available now
+  Haskell        | FFI                   | Available now
+  OCaml          | ctypes                | Available now
+  Lua            | LuaJIT FFI            | Available now
+  Perl           | FFI::Platypus         | Available now
+  D              | extern(C)             | Available now
+  Nim            | importc               | Available now
+  Dart           | dart:ffi              | Available now
+  Erlang         | NIF / Port            | Available now
 
   All C FFI bindings use the same shared library (libswiftllm.so/dylib/dll)
   and header file (include/swiftllm.h). Build once, use everywhere.
+
+  Publishing cheat-sheet:
+    Python     -> PyPI     (maturin publish)
+    Node.js    -> npm      (npm publish)
+    Rust       -> crates.io (cargo publish)
+    Java/Kotlin/Scala -> Maven Central (Sonatype OSSRH)
+    C#         -> NuGet    (dotnet nuget push)
+    Ruby       -> RubyGems (gem push)
+    PHP        -> Packagist (composer + GitHub)
+    Elixir/Erlang -> Hex   (mix hex.publish / rebar3 hex publish)
+    Go         -> Go modules (git tag + go get)
+    Swift      -> SPM + Swift Package Index
+    Haskell    -> Hackage  (cabal upload)
+    OCaml      -> opam     (opam publish)
+    Lua        -> LuaRocks (luarocks upload)
+    Perl       -> CPAN     (PAUSE upload)
+    D          -> DUB      (code.dlang.org)
+    Nim        -> Nimble   (nimble publish)
+    Dart       -> pub.dev  (dart pub publish)
+    C/C++/Zig  -> Ship .so/.dylib/.dll + header (vcpkg/Conan optional)

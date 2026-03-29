@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tracing::{debug, error};
 
-use super::types::{ChatRequest, ChatResponse, FunctionCall, StreamChunk, ToolCall, Usage};
+use super::types::{
+    ChatRequest, ChatResponse, FunctionCall, ResponseFormatType, StreamChunk, ToolCall, Usage,
+};
 use super::{Provider, ProviderError};
 
 type HmacSha256 = Hmac<Sha256>;
@@ -240,6 +242,33 @@ fn to_converse_request(req: &ChatRequest) -> ConverseRequest {
             })
             .collect(),
     });
+
+    // Handle response_format: append a JSON instruction to system blocks
+    if let Some(ref rf) = req.response_format {
+        match rf.format_type {
+            ResponseFormatType::JsonObject => {
+                system.push(SystemBlock {
+                    text: "Respond with valid JSON only.".to_string(),
+                });
+            }
+            ResponseFormatType::JsonSchema => {
+                let instruction = if let Some(ref js) = rf.json_schema {
+                    if let Some(ref schema) = js.schema {
+                        format!(
+                            "Respond with valid JSON only that conforms to this JSON schema: {}",
+                            serde_json::to_string(schema).unwrap_or_default()
+                        )
+                    } else {
+                        "Respond with valid JSON only.".to_string()
+                    }
+                } else {
+                    "Respond with valid JSON only.".to_string()
+                };
+                system.push(SystemBlock { text: instruction });
+            }
+            ResponseFormatType::Text => {}
+        }
+    }
 
     ConverseRequest {
         messages,

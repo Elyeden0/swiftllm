@@ -5,7 +5,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error};
 
-use super::types::{ChatRequest, ChatResponse, StreamChunk, Usage};
+use super::types::{ChatRequest, ChatResponse, ResponseFormatType, StreamChunk, Usage};
 use super::{Provider, ProviderError};
 
 pub struct OllamaProvider {
@@ -31,6 +31,9 @@ struct OllamaRequest {
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     options: Option<OllamaOptions>,
+    /// When set to "json", Ollama returns structured JSON output.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    format: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -89,11 +92,28 @@ fn to_ollama_request(req: &ChatRequest, stream: bool) -> OllamaRequest {
         None
     };
 
+    // Translate response_format to Ollama's format field
+    let format = req
+        .response_format
+        .as_ref()
+        .and_then(|rf| match rf.format_type {
+            ResponseFormatType::JsonObject => Some(serde_json::Value::String("json".to_string())),
+            ResponseFormatType::JsonSchema => {
+                // Ollama supports passing a JSON schema object directly as the format value
+                rf.json_schema
+                    .as_ref()
+                    .and_then(|js| js.schema.clone())
+                    .or_else(|| Some(serde_json::Value::String("json".to_string())))
+            }
+            ResponseFormatType::Text => None,
+        });
+
     OllamaRequest {
         model: req.model.clone(),
         messages,
         stream,
         options,
+        format,
     }
 }
 

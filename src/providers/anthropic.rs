@@ -5,7 +5,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error};
 
-use super::types::{ChatRequest, ChatResponse, StreamChunk, Usage};
+use super::types::{ChatRequest, ChatResponse, ResponseFormatType, StreamChunk, Usage};
 use super::{Provider, ProviderError};
 
 pub struct AnthropicProvider {
@@ -107,6 +107,39 @@ fn to_anthropic_request(req: &ChatRequest, stream: bool) -> AnthropicRequest {
                 role: msg.role.clone(),
                 content: msg.content.clone().unwrap_or_default(),
             });
+        }
+    }
+
+    // Handle response_format: for json_object or json_schema mode, append an
+    // instruction to the system message so that Claude returns valid JSON.
+    if let Some(ref rf) = req.response_format {
+        match rf.format_type {
+            ResponseFormatType::JsonObject => {
+                let suffix = "Respond with valid JSON only.";
+                system_message = Some(match system_message {
+                    Some(existing) => format!("{}\n\n{}", existing, suffix),
+                    None => suffix.to_string(),
+                });
+            }
+            ResponseFormatType::JsonSchema => {
+                let schema_instruction = if let Some(ref js) = rf.json_schema {
+                    if let Some(ref schema) = js.schema {
+                        format!(
+                            "Respond with valid JSON only that conforms to this JSON schema: {}",
+                            serde_json::to_string(schema).unwrap_or_default()
+                        )
+                    } else {
+                        "Respond with valid JSON only.".to_string()
+                    }
+                } else {
+                    "Respond with valid JSON only.".to_string()
+                };
+                system_message = Some(match system_message {
+                    Some(existing) => format!("{}\n\n{}", existing, schema_instruction),
+                    None => schema_instruction,
+                });
+            }
+            ResponseFormatType::Text => {}
         }
     }
 
