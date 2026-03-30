@@ -6,3 +6,4 @@ config.toml
 .DS_Store
 *.so
 __pycache__/
+docs/superpowers/
