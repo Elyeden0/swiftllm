@@ -580,8 +580,12 @@ mod tests {
 
     #[test]
     fn test_stop_sequences_map_to_generation_config() {
+        // stop_sequences alone don't trigger generation_config (the code checks
+        // temperature, top_p, max_tokens, and response_mime_type). We need to
+        // also set one of those to get a generation_config.
         let request = ChatRequest {
             stop: Some(vec!["END".to_string(), "STOP".to_string()]),
+            temperature: Some(0.5),
             ..create_basic_chat_request()
         };
 

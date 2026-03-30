@@ -5,9 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use swiftllm::config::{
-    CacheConfig, Config, ProviderConfig, ProviderKind, RateLimitConfig, RoutingConfig,
-};
+use swiftllm::config::{CacheConfig, Config, ProviderConfig, ProviderKind, RoutingConfig};
 use swiftllm::failover::chat_with_failover;
 use swiftllm::middleware::cache::ResponseCache;
 use swiftllm::middleware::rate_limit::{RateLimitConfig as RlConfig, RateLimiter};

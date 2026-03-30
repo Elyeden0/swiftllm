@@ -1188,8 +1188,8 @@ mod tests {
         assert!(choice.message.tool_calls.is_some());
         let tool_calls = choice.message.tool_calls.as_ref().unwrap();
         assert_eq!(tool_calls.len(), 1);
-        // Text content is accumulated but tool calls take precedence
-        assert_eq!(choice.message.content, Some("Let me help you.".to_string()));
+        // When tool calls are present, new_tool_call is used and content is None
+        assert!(choice.message.content.is_none());
     }
 
     #[test]

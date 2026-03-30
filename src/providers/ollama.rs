@@ -572,6 +572,7 @@ mod tests {
 
     #[test]
     fn test_response_format_json_schema_no_schema_object() {
+        // When json_schema is None, the code falls back to "json" via or_else
         let mut req = create_test_request("llama2");
         req.response_format = Some(ResponseFormat {
             format_type: ResponseFormatType::JsonSchema,
@@ -580,7 +581,11 @@ mod tests {
 
         let ollama_req = to_ollama_request(&req, false);
 
-        assert!(ollama_req.format.is_none());
+        assert!(ollama_req.format.is_some());
+        assert_eq!(
+            ollama_req.format.unwrap(),
+            serde_json::Value::String("json".to_string())
+        );
     }
 
     #[test]
