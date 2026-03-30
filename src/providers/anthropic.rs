@@ -315,3 +315,366 @@ fn parse_anthropic_sse(text: &str, model: &str) -> Vec<Result<StreamChunk, Provi
 
     chunks
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::providers::types::{JsonSchemaFormat, Message, ResponseFormat, ResponseFormatType};
+    use serde_json::json;
+
+    // ── Helper functions ──
+
+    fn create_chat_request(
+        model: &str,
+        messages: Vec<Message>,
+        max_tokens: Option<u64>,
+        response_format: Option<ResponseFormat>,
+    ) -> ChatRequest {
+        ChatRequest {
+            model: model.to_string(),
+            messages,
+            temperature: None,
+            max_tokens,
+            top_p: None,
+            stream: None,
+            stop: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            tools: None,
+            tool_choice: None,
+            response_format,
+        }
+    }
+
+    fn create_message(role: &str, content: Option<String>) -> Message {
+        Message {
+            role: role.to_string(),
+            content,
+            tool_calls: None,
+            tool_call_id: None,
+            name: None,
+        }
+    }
+
+    // ── Tests for to_anthropic_request ──
+
+    #[test]
+    fn test_system_message_extraction() {
+        let messages = vec![
+            create_message("system", Some("You are a helpful assistant".to_string())),
+            create_message("user", Some("Hello".to_string())),
+        ];
+        let req = create_chat_request("claude-3-sonnet", messages, None, None);
+
+        let result = to_anthropic_request(&req, false);
+
+        assert_eq!(
+            result.system,
+            Some("You are a helpful assistant".to_string())
+        );
+        assert_eq!(result.messages.len(), 1);
+        assert_eq!(result.messages[0].role, "user");
+        assert_eq!(result.messages[0].content, "Hello");
+    }
+
+    #[test]
+    fn test_non_system_messages_passthrough() {
+        let messages = vec![
+            create_message("user", Some("What is 2+2?".to_string())),
+            create_message("assistant", Some("2+2 equals 4.".to_string())),
+        ];
+        let req = create_chat_request("claude-3-sonnet", messages, None, None);
+
+        let result = to_anthropic_request(&req, false);
+
+        assert_eq!(result.system, None);
+        assert_eq!(result.messages.len(), 2);
+        assert_eq!(result.messages[0].role, "user");
+        assert_eq!(result.messages[0].content, "What is 2+2?");
+        assert_eq!(result.messages[1].role, "assistant");
+        assert_eq!(result.messages[1].content, "2+2 equals 4.");
+    }
+
+    #[test]
+    fn test_max_tokens_default() {
+        let messages = vec![create_message("user", Some("Hi".to_string()))];
+        let req = create_chat_request("claude-3-sonnet", messages, None, None);
+
+        let result = to_anthropic_request(&req, false);
+
+        assert_eq!(result.max_tokens, 4096);
+    }
+
+    #[test]
+    fn test_max_tokens_passthrough() {
+        let messages = vec![create_message("user", Some("Hi".to_string()))];
+        let req = create_chat_request("claude-3-sonnet", messages, Some(2048), None);
+
+        let result = to_anthropic_request(&req, false);
+
+        assert_eq!(result.max_tokens, 2048);
+    }
+
+    #[test]
+    fn test_response_format_json_object() {
+        let messages = vec![create_message("user", Some("Generate JSON".to_string()))];
+        let response_format = ResponseFormat {
+            format_type: ResponseFormatType::JsonObject,
+            json_schema: None,
+        };
+        let req = create_chat_request("claude-3-sonnet", messages, None, Some(response_format));
+
+        let result = to_anthropic_request(&req, false);
+
+        assert!(result.system.is_some());
+        let system = result.system.unwrap();
+        assert!(system.contains("Respond with valid JSON only."));
+    }
+
+    #[test]
+    fn test_response_format_json_object_with_existing_system() {
+        let messages = vec![create_message("user", Some("Generate JSON".to_string()))];
+        let response_format = ResponseFormat {
+            format_type: ResponseFormatType::JsonObject,
+            json_schema: None,
+        };
+        let mut req = create_chat_request("claude-3-sonnet", messages, None, Some(response_format));
+        // Manually set system message
+        req.messages
+            .insert(0, create_message("system", Some("Be concise".to_string())));
+
+        let result = to_anthropic_request(&req, false);
+
+        assert!(result.system.is_some());
+        let system = result.system.unwrap();
+        assert!(system.contains("Be concise"));
+        assert!(system.contains("Respond with valid JSON only."));
+        assert!(system.contains("\n\n"));
+    }
+
+    #[test]
+    fn test_response_format_json_schema_with_schema() {
+        let messages = vec![create_message(
+            "user",
+            Some("Generate structured data".to_string()),
+        )];
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string" }
+            }
+        });
+        let response_format = ResponseFormat {
+            format_type: ResponseFormatType::JsonSchema,
+            json_schema: Some(JsonSchemaFormat {
+                name: "TestSchema".to_string(),
+                description: None,
+                schema: Some(schema),
+                strict: None,
+            }),
+        };
+        let req = create_chat_request("claude-3-sonnet", messages, None, Some(response_format));
+
+        let result = to_anthropic_request(&req, false);
+
+        assert!(result.system.is_some());
+        let system = result.system.unwrap();
+        assert!(system.contains("Respond with valid JSON only that conforms to this JSON schema:"));
+        assert!(system.contains("\"type\":\"object\""));
+    }
+
+    #[test]
+    fn test_response_format_json_schema_without_schema() {
+        let messages = vec![create_message("user", Some("Generate JSON".to_string()))];
+        let response_format = ResponseFormat {
+            format_type: ResponseFormatType::JsonSchema,
+            json_schema: Some(JsonSchemaFormat {
+                name: "TestSchema".to_string(),
+                description: None,
+                schema: None,
+                strict: None,
+            }),
+        };
+        let req = create_chat_request("claude-3-sonnet", messages, None, Some(response_format));
+
+        let result = to_anthropic_request(&req, false);
+
+        assert!(result.system.is_some());
+        let system = result.system.unwrap();
+        assert_eq!(system, "Respond with valid JSON only.");
+    }
+
+    #[test]
+    fn test_response_format_text() {
+        let messages = vec![create_message("user", Some("Just talk".to_string()))];
+        let response_format = ResponseFormat {
+            format_type: ResponseFormatType::Text,
+            json_schema: None,
+        };
+        let req = create_chat_request("claude-3-sonnet", messages, None, Some(response_format));
+
+        let result = to_anthropic_request(&req, false);
+
+        assert_eq!(result.system, None);
+    }
+
+    #[test]
+    fn test_stream_flag_passed_through() {
+        let messages = vec![create_message("user", Some("Hi".to_string()))];
+        let req = create_chat_request("claude-3-sonnet", messages, None, None);
+
+        let result_stream = to_anthropic_request(&req, true);
+        let result_no_stream = to_anthropic_request(&req, false);
+
+        assert!(result_stream.stream);
+        assert!(!result_no_stream.stream);
+    }
+
+    // ── Tests for anthropic_to_chat_response ──
+
+    #[test]
+    fn test_anthropic_response_to_chat_response() {
+        let resp = AnthropicResponse {
+            id: "msg_123".to_string(),
+            model: "claude-3-sonnet".to_string(),
+            content: vec![AnthropicContent {
+                content_type: "text".to_string(),
+                text: Some("Hello, world!".to_string()),
+            }],
+            usage: AnthropicUsage {
+                input_tokens: 10,
+                output_tokens: 5,
+            },
+            stop_reason: None,
+        };
+
+        let result = anthropic_to_chat_response(resp);
+
+        assert_eq!(result.model, "claude-3-sonnet");
+        assert_eq!(result.choices.len(), 1);
+        assert_eq!(
+            result.choices[0].message.content,
+            Some("Hello, world!".to_string())
+        );
+        assert!(result.usage.is_some());
+
+        let usage = result.usage.unwrap();
+        assert_eq!(usage.prompt_tokens, 10);
+        assert_eq!(usage.completion_tokens, 5);
+        assert_eq!(usage.total_tokens, 15);
+    }
+
+    #[test]
+    fn test_anthropic_response_multiple_content_blocks() {
+        let resp = AnthropicResponse {
+            id: "msg_456".to_string(),
+            model: "claude-3-opus".to_string(),
+            content: vec![
+                AnthropicContent {
+                    content_type: "text".to_string(),
+                    text: Some("Part 1".to_string()),
+                },
+                AnthropicContent {
+                    content_type: "text".to_string(),
+                    text: Some(" Part 2".to_string()),
+                },
+                AnthropicContent {
+                    content_type: "text".to_string(),
+                    text: Some(" Part 3".to_string()),
+                },
+            ],
+            usage: AnthropicUsage {
+                input_tokens: 20,
+                output_tokens: 10,
+            },
+            stop_reason: None,
+        };
+
+        let result = anthropic_to_chat_response(resp);
+
+        assert_eq!(
+            result.choices[0].message.content,
+            Some("Part 1 Part 2 Part 3".to_string())
+        );
+    }
+
+    #[test]
+    fn test_anthropic_response_skips_non_text_content() {
+        let resp = AnthropicResponse {
+            id: "msg_789".to_string(),
+            model: "claude-3-sonnet".to_string(),
+            content: vec![
+                AnthropicContent {
+                    content_type: "text".to_string(),
+                    text: Some("Text content".to_string()),
+                },
+                AnthropicContent {
+                    content_type: "image".to_string(),
+                    text: None,
+                },
+                AnthropicContent {
+                    content_type: "text".to_string(),
+                    text: None,
+                },
+            ],
+            usage: AnthropicUsage {
+                input_tokens: 15,
+                output_tokens: 8,
+            },
+            stop_reason: None,
+        };
+
+        let result = anthropic_to_chat_response(resp);
+
+        // Should only include the text content, not None or non-text types
+        assert_eq!(
+            result.choices[0].message.content,
+            Some("Text content".to_string())
+        );
+    }
+
+    #[test]
+    fn test_anthropic_response_empty_content() {
+        let resp = AnthropicResponse {
+            id: "msg_empty".to_string(),
+            model: "claude-3-sonnet".to_string(),
+            content: vec![],
+            usage: AnthropicUsage {
+                input_tokens: 5,
+                output_tokens: 0,
+            },
+            stop_reason: None,
+        };
+
+        let result = anthropic_to_chat_response(resp);
+
+        assert_eq!(result.choices[0].message.content, Some("".to_string()));
+    }
+
+    // ── Tests for map_stop_reason ──
+
+    #[test]
+    fn test_map_stop_reason_end_turn() {
+        assert_eq!(map_stop_reason("end_turn"), "stop");
+    }
+
+    #[test]
+    fn test_map_stop_reason_max_tokens() {
+        assert_eq!(map_stop_reason("max_tokens"), "length");
+    }
+
+    #[test]
+    fn test_map_stop_reason_stop_sequence() {
+        assert_eq!(map_stop_reason("stop_sequence"), "stop");
+    }
+
+    #[test]
+    fn test_map_stop_reason_unknown() {
+        assert_eq!(map_stop_reason("unknown_reason"), "unknown_reason");
+    }
+
+    #[test]
+    fn test_map_stop_reason_passthrough() {
+        assert_eq!(map_stop_reason("custom_stop"), "custom_stop");
+    }
+}

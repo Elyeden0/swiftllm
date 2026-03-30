@@ -24,7 +24,7 @@ use crate::providers::mistral::MistralProvider;
 use crate::providers::ollama::OllamaProvider;
 use crate::providers::openai::OpenAiProvider;
 use crate::providers::together::TogetherProvider;
-use crate::providers::types::ChatRequest;
+use crate::providers::types::{ChatRequest, EmbeddingRequest};
 use crate::providers::{Provider, ProviderError};
 use secrecy::ExposeSecret;
 
@@ -171,6 +171,7 @@ impl AppState {
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/v1/chat/completions", post(chat_completions))
+        .route("/v1/embeddings", post(embeddings))
         .route("/v1/models", get(list_models))
         .route("/health", get(health_check))
         .route("/api/stats", get(get_stats))
@@ -418,6 +419,117 @@ async fn chat_completions(
                     Err(e) => Err(provider_error_to_response(e)),
                 }
             }
+        }
+    }
+}
+
+/// Embeddings endpoint — routes to the appropriate provider
+async fn embeddings(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<EmbeddingRequest>,
+) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
+    // Auth check
+    if !state.config.auth.api_keys.is_empty() {
+        let provided_key = headers
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "));
+
+        match provided_key {
+            Some(key)
+                if state
+                    .config
+                    .auth
+                    .api_keys
+                    .iter()
+                    .any(|k| k.expose_secret() == key) => {}
+            _ => {
+                return Err((
+                    StatusCode::UNAUTHORIZED,
+                    Json(serde_json::json!({
+                        "error": {
+                            "message": "Invalid API key",
+                            "type": "authentication_error",
+                        }
+                    })),
+                ));
+            }
+        }
+    }
+
+    // Find provider for the requested model
+    let (provider_name, _provider_config) = state
+        .config
+        .find_provider_for_model(&request.model)
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": {
+                        "message": format!("No provider configured for model: {}", request.model),
+                        "type": "invalid_request_error",
+                    }
+                })),
+            )
+        })?;
+
+    // Rate limit check
+    if let Some(limiter) = &state.rate_limiter {
+        if let Err(retry_after) = limiter.check(provider_name) {
+            warn!(
+                provider = provider_name.as_str(),
+                retry_after = format!("{:.1}s", retry_after).as_str(),
+                "Rate limited"
+            );
+            return Err((
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(serde_json::json!({
+                    "error": {
+                        "message": format!(
+                            "Rate limit exceeded for provider '{}'. Retry after {:.1}s",
+                            provider_name, retry_after
+                        ),
+                        "type": "rate_limit_error",
+                        "retry_after": retry_after,
+                    }
+                })),
+            ));
+        }
+    }
+
+    let provider = state.providers.get(provider_name).ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": {
+                    "message": "Provider not initialized",
+                    "type": "server_error",
+                }
+            })),
+        )
+    })?;
+
+    info!(
+        model = %request.model,
+        provider = provider_name.as_str(),
+        "Routing embedding request"
+    );
+
+    match provider.embeddings(&request).await {
+        Ok(response) => {
+            // Track cost (embeddings only have prompt tokens)
+            state.cost_tracker.record_request(
+                provider_name,
+                &request.model,
+                response.usage.prompt_tokens,
+                0,
+            );
+            Ok(Json(response).into_response())
+        }
+        Err(e) => {
+            state.cost_tracker.record_error(provider_name);
+            Err(provider_error_to_response(e))
         }
     }
 }

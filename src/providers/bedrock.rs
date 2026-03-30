@@ -7,7 +7,8 @@ use sha2::{Digest, Sha256};
 use tracing::{debug, error};
 
 use super::types::{
-    ChatRequest, ChatResponse, FunctionCall, ResponseFormatType, StreamChunk, ToolCall, Usage,
+    ChatRequest, ChatResponse, EmbeddingData, EmbeddingRequest, EmbeddingResponse, EmbeddingUsage,
+    FunctionCall, ResponseFormatType, StreamChunk, ToolCall, Usage,
 };
 use super::{Provider, ProviderError};
 
@@ -572,5 +573,718 @@ impl Provider for BedrockProvider {
         let stream = futures::stream::once(async move { Ok(chunk) });
 
         Ok(Box::pin(stream))
+    }
+
+    async fn embeddings(
+        &self,
+        request: &EmbeddingRequest,
+    ) -> Result<EmbeddingResponse, ProviderError> {
+        debug!("Bedrock embeddings request for model: {}", request.model);
+
+        let inputs = request.input.to_vec();
+        let mut all_data = Vec::new();
+
+        for (idx, text) in inputs.iter().enumerate() {
+            let uri = format!("/model/{}/invoke", request.model);
+            let url = format!(
+                "https://bedrock-runtime.{}.amazonaws.com{}",
+                self.region, uri
+            );
+
+            // Use Titan embedding format by default
+            let embed_body = serde_json::json!({
+                "inputText": text,
+            });
+            let body =
+                serde_json::to_vec(&embed_body).map_err(|e| ProviderError::Parse(e.to_string()))?;
+
+            let headers = sign_request(
+                "POST",
+                &uri,
+                &body,
+                &self.region,
+                &self.access_key_id,
+                &self.secret_access_key,
+                self.session_token.as_deref(),
+            );
+
+            let mut builder = self.client.post(&url);
+            for (k, v) in &headers {
+                builder = builder.header(k.as_str(), v.as_str());
+            }
+            builder = builder.body(body);
+
+            let response = builder
+                .send()
+                .await
+                .map_err(|e| ProviderError::Network(e.to_string()))?;
+
+            let status = response.status().as_u16();
+            if status >= 400 {
+                let body = response.text().await.unwrap_or_default();
+                error!("Bedrock embeddings API error {}: {}", status, body);
+                return Err(ProviderError::Api {
+                    status,
+                    message: body,
+                });
+            }
+
+            let resp_body: serde_json::Value = response
+                .json()
+                .await
+                .map_err(|e| ProviderError::Parse(e.to_string()))?;
+
+            let embedding = resp_body
+                .get("embedding")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_f64()).collect::<Vec<f64>>())
+                .unwrap_or_default();
+
+            all_data.push(EmbeddingData {
+                object: "embedding".to_string(),
+                embedding,
+                index: idx,
+            });
+        }
+
+        Ok(EmbeddingResponse::new(
+            request.model.clone(),
+            all_data,
+            EmbeddingUsage {
+                prompt_tokens: 0,
+                total_tokens: 0,
+            },
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::providers::types::{
+        FunctionCall, FunctionDefinition, JsonSchemaFormat, Message, ResponseFormat,
+        ResponseFormatType, ToolCall, ToolDefinition,
+    };
+
+    // ── to_converse_request tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_system_message_extraction() {
+        let request = ChatRequest {
+            model: "test-model".to_string(),
+            messages: vec![Message {
+                role: "system".to_string(),
+                content: Some("You are a helpful assistant.".to_string()),
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            }],
+            temperature: None,
+            max_tokens: None,
+            top_p: None,
+            stream: None,
+            stop: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            tools: None,
+            tool_choice: None,
+            response_format: None,
+        };
+
+        let converse_req = to_converse_request(&request);
+
+        assert!(converse_req.system.is_some());
+        let system_blocks = converse_req.system.unwrap();
+        assert_eq!(system_blocks.len(), 1);
+        assert_eq!(system_blocks[0].text, "You are a helpful assistant.");
+    }
+
+    #[test]
+    fn test_user_message_content() {
+        let request = ChatRequest {
+            model: "test-model".to_string(),
+            messages: vec![Message {
+                role: "user".to_string(),
+                content: Some("Hello, world!".to_string()),
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            }],
+            temperature: None,
+            max_tokens: None,
+            top_p: None,
+            stream: None,
+            stop: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            tools: None,
+            tool_choice: None,
+            response_format: None,
+        };
+
+        let converse_req = to_converse_request(&request);
+
+        assert_eq!(converse_req.messages.len(), 1);
+        assert_eq!(converse_req.messages[0].role, "user");
+        assert_eq!(converse_req.messages[0].content.len(), 1);
+
+        match &converse_req.messages[0].content[0] {
+            ContentBlock::Text(text) => assert_eq!(text, "Hello, world!"),
+            _ => panic!("Expected ContentBlock::Text"),
+        }
+    }
+
+    #[test]
+    fn test_assistant_message_with_tool_calls() {
+        let request = ChatRequest {
+            model: "test-model".to_string(),
+            messages: vec![Message {
+                role: "assistant".to_string(),
+                content: Some("I'll help you with that.".to_string()),
+                tool_calls: Some(vec![ToolCall {
+                    id: "call_123".to_string(),
+                    call_type: "function".to_string(),
+                    function: FunctionCall {
+                        name: "get_weather".to_string(),
+                        arguments: r#"{"location":"San Francisco"}"#.to_string(),
+                    },
+                }]),
+                tool_call_id: None,
+                name: None,
+            }],
+            temperature: None,
+            max_tokens: None,
+            top_p: None,
+            stream: None,
+            stop: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            tools: None,
+            tool_choice: None,
+            response_format: None,
+        };
+
+        let converse_req = to_converse_request(&request);
+
+        assert_eq!(converse_req.messages.len(), 1);
+        assert_eq!(converse_req.messages[0].role, "assistant");
+        assert_eq!(converse_req.messages[0].content.len(), 2);
+
+        // First block should be text
+        match &converse_req.messages[0].content[0] {
+            ContentBlock::Text(text) => assert_eq!(text, "I'll help you with that."),
+            _ => panic!("Expected ContentBlock::Text"),
+        }
+
+        // Second block should be tool use
+        match &converse_req.messages[0].content[1] {
+            ContentBlock::ToolUse {
+                tool_use_id,
+                name,
+                input,
+            } => {
+                assert_eq!(tool_use_id, "call_123");
+                assert_eq!(name, "get_weather");
+                assert_eq!(
+                    input.get("location").and_then(|v| v.as_str()),
+                    Some("San Francisco")
+                );
+            }
+            _ => panic!("Expected ContentBlock::ToolUse"),
+        }
+    }
+
+    #[test]
+    fn test_tool_message_content() {
+        let request = ChatRequest {
+            model: "test-model".to_string(),
+            messages: vec![Message {
+                role: "tool".to_string(),
+                content: Some("Weather: 72°F and sunny".to_string()),
+                tool_calls: None,
+                tool_call_id: Some("call_123".to_string()),
+                name: Some("get_weather".to_string()),
+            }],
+            temperature: None,
+            max_tokens: None,
+            top_p: None,
+            stream: None,
+            stop: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            tools: None,
+            tool_choice: None,
+            response_format: None,
+        };
+
+        let converse_req = to_converse_request(&request);
+
+        assert_eq!(converse_req.messages.len(), 1);
+        assert_eq!(converse_req.messages[0].role, "user");
+
+        match &converse_req.messages[0].content[0] {
+            ContentBlock::ToolResult {
+                tool_use_id,
+                content,
+            } => {
+                assert_eq!(tool_use_id, "call_123");
+                assert_eq!(content.len(), 1);
+                match &content[0] {
+                    ToolResultContent::Text(text) => {
+                        assert_eq!(text, "Weather: 72°F and sunny");
+                    }
+                }
+            }
+            _ => panic!("Expected ContentBlock::ToolResult"),
+        }
+    }
+
+    #[test]
+    fn test_inference_config_mapping() {
+        let request = ChatRequest {
+            model: "test-model".to_string(),
+            messages: vec![],
+            temperature: Some(0.7),
+            max_tokens: Some(1024),
+            top_p: Some(0.9),
+            stream: None,
+            stop: Some(vec!["STOP".to_string(), "END".to_string()]),
+            presence_penalty: None,
+            frequency_penalty: None,
+            tools: None,
+            tool_choice: None,
+            response_format: None,
+        };
+
+        let converse_req = to_converse_request(&request);
+
+        assert!(converse_req.inference_config.is_some());
+        let config = converse_req.inference_config.unwrap();
+        assert_eq!(config.temperature, Some(0.7));
+        assert_eq!(config.max_tokens, Some(1024));
+        assert_eq!(config.top_p, Some(0.9));
+        assert_eq!(
+            config.stop_sequences,
+            Some(vec!["STOP".to_string(), "END".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_tool_config_translation() {
+        let request = ChatRequest {
+            model: "test-model".to_string(),
+            messages: vec![],
+            temperature: None,
+            max_tokens: None,
+            top_p: None,
+            stream: None,
+            stop: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            tools: Some(vec![ToolDefinition {
+                tool_type: "function".to_string(),
+                function: FunctionDefinition {
+                    name: "get_weather".to_string(),
+                    description: Some("Get the current weather".to_string()),
+                    parameters: Some(serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "location": {
+                                "type": "string",
+                                "description": "City name"
+                            }
+                        },
+                        "required": ["location"]
+                    })),
+                },
+            }]),
+            tool_choice: None,
+            response_format: None,
+        };
+
+        let converse_req = to_converse_request(&request);
+
+        assert!(converse_req.tool_config.is_some());
+        let tool_config = converse_req.tool_config.unwrap();
+        assert_eq!(tool_config.tools.len(), 1);
+
+        let tool = &tool_config.tools[0];
+        assert_eq!(tool.tool_spec.name, "get_weather");
+        assert_eq!(
+            tool.tool_spec.description,
+            Some("Get the current weather".to_string())
+        );
+
+        let input_schema = &tool.tool_spec.input_schema.json;
+        assert_eq!(
+            input_schema.get("type").and_then(|v| v.as_str()),
+            Some("object")
+        );
+        assert!(input_schema.get("properties").is_some());
+    }
+
+    #[test]
+    fn test_response_format_json_object() {
+        let request = ChatRequest {
+            model: "test-model".to_string(),
+            messages: vec![],
+            temperature: None,
+            max_tokens: None,
+            top_p: None,
+            stream: None,
+            stop: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            tools: None,
+            tool_choice: None,
+            response_format: Some(ResponseFormat {
+                format_type: ResponseFormatType::JsonObject,
+                json_schema: None,
+            }),
+        };
+
+        let converse_req = to_converse_request(&request);
+
+        assert!(converse_req.system.is_some());
+        let system_blocks = converse_req.system.unwrap();
+        assert_eq!(system_blocks.len(), 1);
+        assert_eq!(system_blocks[0].text, "Respond with valid JSON only.");
+    }
+
+    #[test]
+    fn test_response_format_json_schema() {
+        let request = ChatRequest {
+            model: "test-model".to_string(),
+            messages: vec![],
+            temperature: None,
+            max_tokens: None,
+            top_p: None,
+            stream: None,
+            stop: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            tools: None,
+            tool_choice: None,
+            response_format: Some(ResponseFormat {
+                format_type: ResponseFormatType::JsonSchema,
+                json_schema: Some(JsonSchemaFormat {
+                    name: "UserSchema".to_string(),
+                    description: Some("Schema for user data".to_string()),
+                    schema: Some(serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "name": { "type": "string" },
+                            "age": { "type": "number" }
+                        }
+                    })),
+                    strict: Some(true),
+                }),
+            }),
+        };
+
+        let converse_req = to_converse_request(&request);
+
+        assert!(converse_req.system.is_some());
+        let system_blocks = converse_req.system.unwrap();
+        assert_eq!(system_blocks.len(), 1);
+        assert!(system_blocks[0]
+            .text
+            .contains("Respond with valid JSON only that conforms to this JSON schema:"));
+    }
+
+    // ── converse_to_chat_response tests ────────────────────────────────────
+
+    #[test]
+    fn test_converse_response_to_chat_response_text() {
+        let converse_resp = ConverseResponse {
+            output: ConverseOutput {
+                message: Some(ConverseMessage {
+                    role: "assistant".to_string(),
+                    content: vec![ContentBlock::Text("This is a test response.".to_string())],
+                }),
+            },
+            usage: Some(ConverseUsage {
+                input_tokens: 10,
+                output_tokens: 20,
+                total_tokens: 30,
+            }),
+            stop_reason: Some("end_turn".to_string()),
+        };
+
+        let chat_resp = converse_to_chat_response(converse_resp, "test-model");
+
+        assert_eq!(chat_resp.model, "test-model");
+        assert_eq!(chat_resp.choices.len(), 1);
+
+        let choice = &chat_resp.choices[0];
+        assert_eq!(
+            choice.message.content,
+            Some("This is a test response.".to_string())
+        );
+        assert_eq!(choice.finish_reason, Some("stop".to_string()));
+
+        let usage = &chat_resp.usage;
+        assert!(usage.is_some());
+        let usage = usage.as_ref().unwrap();
+        assert_eq!(usage.prompt_tokens, 10);
+        assert_eq!(usage.completion_tokens, 20);
+        assert_eq!(usage.total_tokens, 30);
+    }
+
+    #[test]
+    fn test_converse_response_usage_mapping() {
+        let converse_resp = ConverseResponse {
+            output: ConverseOutput {
+                message: Some(ConverseMessage {
+                    role: "assistant".to_string(),
+                    content: vec![ContentBlock::Text("Response".to_string())],
+                }),
+            },
+            usage: Some(ConverseUsage {
+                input_tokens: 100,
+                output_tokens: 200,
+                total_tokens: 300,
+            }),
+            stop_reason: None,
+        };
+
+        let chat_resp = converse_to_chat_response(converse_resp, "model");
+
+        let usage = chat_resp.usage.unwrap();
+        assert_eq!(usage.prompt_tokens, 100);
+        assert_eq!(usage.completion_tokens, 200);
+        assert_eq!(usage.total_tokens, 300);
+    }
+
+    #[test]
+    fn test_converse_response_stop_reason_mapping() {
+        let test_cases = vec![
+            ("end_turn", "stop"),
+            ("max_tokens", "length"),
+            ("tool_use", "tool_calls"),
+            ("stop_sequence", "stop"),
+            ("unknown_reason", "unknown_reason"),
+        ];
+
+        for (bedrock_reason, expected_reason) in test_cases {
+            let converse_resp = ConverseResponse {
+                output: ConverseOutput {
+                    message: Some(ConverseMessage {
+                        role: "assistant".to_string(),
+                        content: vec![ContentBlock::Text("Response".to_string())],
+                    }),
+                },
+                usage: None,
+                stop_reason: Some(bedrock_reason.to_string()),
+            };
+
+            let chat_resp = converse_to_chat_response(converse_resp, "model");
+            assert_eq!(
+                chat_resp.choices[0].finish_reason,
+                Some(expected_reason.to_string())
+            );
+        }
+    }
+
+    #[test]
+    fn test_converse_response_with_tool_use() {
+        let converse_resp = ConverseResponse {
+            output: ConverseOutput {
+                message: Some(ConverseMessage {
+                    role: "assistant".to_string(),
+                    content: vec![ContentBlock::ToolUse {
+                        tool_use_id: "call_456".to_string(),
+                        name: "calculate".to_string(),
+                        input: serde_json::json!({
+                            "operation": "add",
+                            "a": 5,
+                            "b": 3
+                        }),
+                    }],
+                }),
+            },
+            usage: None,
+            stop_reason: Some("tool_use".to_string()),
+        };
+
+        let chat_resp = converse_to_chat_response(converse_resp, "test-model");
+
+        assert_eq!(chat_resp.model, "test-model");
+        let choice = &chat_resp.choices[0];
+        assert!(choice.message.tool_calls.is_some());
+
+        let tool_calls = choice.message.tool_calls.as_ref().unwrap();
+        assert_eq!(tool_calls.len(), 1);
+
+        let tool_call = &tool_calls[0];
+        assert_eq!(tool_call.id, "call_456");
+        assert_eq!(tool_call.call_type, "function");
+        assert_eq!(tool_call.function.name, "calculate");
+
+        let args: serde_json::Value = serde_json::from_str(&tool_call.function.arguments).unwrap();
+        assert_eq!(args.get("operation").and_then(|v| v.as_str()), Some("add"));
+        assert_eq!(args.get("a").and_then(|v| v.as_u64()), Some(5));
+        assert_eq!(args.get("b").and_then(|v| v.as_u64()), Some(3));
+
+        assert_eq!(choice.finish_reason, Some("tool_calls".to_string()));
+    }
+
+    #[test]
+    fn test_converse_response_with_multiple_tool_uses() {
+        let converse_resp = ConverseResponse {
+            output: ConverseOutput {
+                message: Some(ConverseMessage {
+                    role: "assistant".to_string(),
+                    content: vec![
+                        ContentBlock::ToolUse {
+                            tool_use_id: "call_1".to_string(),
+                            name: "tool_a".to_string(),
+                            input: serde_json::json!({"param": "value1"}),
+                        },
+                        ContentBlock::ToolUse {
+                            tool_use_id: "call_2".to_string(),
+                            name: "tool_b".to_string(),
+                            input: serde_json::json!({"param": "value2"}),
+                        },
+                    ],
+                }),
+            },
+            usage: None,
+            stop_reason: Some("tool_use".to_string()),
+        };
+
+        let chat_resp = converse_to_chat_response(converse_resp, "test-model");
+
+        let tool_calls = chat_resp.choices[0].message.tool_calls.as_ref().unwrap();
+        assert_eq!(tool_calls.len(), 2);
+        assert_eq!(tool_calls[0].id, "call_1");
+        assert_eq!(tool_calls[1].id, "call_2");
+    }
+
+    #[test]
+    fn test_converse_response_with_mixed_content() {
+        let converse_resp = ConverseResponse {
+            output: ConverseOutput {
+                message: Some(ConverseMessage {
+                    role: "assistant".to_string(),
+                    content: vec![
+                        ContentBlock::Text("Let me help you.".to_string()),
+                        ContentBlock::ToolUse {
+                            tool_use_id: "call_789".to_string(),
+                            name: "helper".to_string(),
+                            input: serde_json::json!({}),
+                        },
+                    ],
+                }),
+            },
+            usage: None,
+            stop_reason: Some("tool_use".to_string()),
+        };
+
+        let chat_resp = converse_to_chat_response(converse_resp, "test-model");
+
+        // Mixed content should prioritize tool calls
+        let choice = &chat_resp.choices[0];
+        assert!(choice.message.tool_calls.is_some());
+        let tool_calls = choice.message.tool_calls.as_ref().unwrap();
+        assert_eq!(tool_calls.len(), 1);
+        // Text content is accumulated but tool calls take precedence
+        assert_eq!(choice.message.content, Some("Let me help you.".to_string()));
+    }
+
+    #[test]
+    fn test_empty_converse_response() {
+        let converse_resp = ConverseResponse {
+            output: ConverseOutput { message: None },
+            usage: None,
+            stop_reason: None,
+        };
+
+        let chat_resp = converse_to_chat_response(converse_resp, "test-model");
+
+        assert_eq!(chat_resp.choices[0].message.content, Some(String::new()));
+        assert!(chat_resp.choices[0].message.tool_calls.is_none());
+    }
+
+    #[test]
+    fn test_assistant_without_text() {
+        let request = ChatRequest {
+            model: "test-model".to_string(),
+            messages: vec![Message {
+                role: "assistant".to_string(),
+                content: None,
+                tool_calls: Some(vec![ToolCall {
+                    id: "call_999".to_string(),
+                    call_type: "function".to_string(),
+                    function: FunctionCall {
+                        name: "action".to_string(),
+                        arguments: "{}".to_string(),
+                    },
+                }]),
+                tool_call_id: None,
+                name: None,
+            }],
+            temperature: None,
+            max_tokens: None,
+            top_p: None,
+            stream: None,
+            stop: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            tools: None,
+            tool_choice: None,
+            response_format: None,
+        };
+
+        let converse_req = to_converse_request(&request);
+
+        assert_eq!(converse_req.messages.len(), 1);
+        assert_eq!(converse_req.messages[0].content.len(), 1);
+
+        match &converse_req.messages[0].content[0] {
+            ContentBlock::ToolUse { .. } => {}
+            _ => panic!("Expected ContentBlock::ToolUse"),
+        }
+    }
+
+    #[test]
+    fn test_multiple_system_messages() {
+        let request = ChatRequest {
+            model: "test-model".to_string(),
+            messages: vec![
+                Message {
+                    role: "system".to_string(),
+                    content: Some("First instruction.".to_string()),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    name: None,
+                },
+                Message {
+                    role: "system".to_string(),
+                    content: Some("Second instruction.".to_string()),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    name: None,
+                },
+            ],
+            temperature: None,
+            max_tokens: None,
+            top_p: None,
+            stream: None,
+            stop: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            tools: None,
+            tool_choice: None,
+            response_format: None,
+        };
+
+        let converse_req = to_converse_request(&request);
+
+        assert!(converse_req.system.is_some());
+        let system_blocks = converse_req.system.unwrap();
+        assert_eq!(system_blocks.len(), 2);
+        assert_eq!(system_blocks[0].text, "First instruction.");
+        assert_eq!(system_blocks[1].text, "Second instruction.");
     }
 }

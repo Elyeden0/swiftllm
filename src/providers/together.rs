@@ -4,7 +4,7 @@ use futures::StreamExt;
 use reqwest::Client;
 use tracing::{debug, error};
 
-use super::types::{ChatRequest, ChatResponse, StreamChunk};
+use super::types::{ChatRequest, ChatResponse, EmbeddingRequest, EmbeddingResponse, StreamChunk};
 use super::{Provider, ProviderError};
 
 /// Together AI provider — OpenAI-compatible API for open-source models.
@@ -106,6 +106,43 @@ impl Provider for TogetherProvider {
             .flat_map(futures::stream::iter);
 
         Ok(Box::pin(stream))
+    }
+
+    async fn embeddings(
+        &self,
+        request: &EmbeddingRequest,
+    ) -> Result<EmbeddingResponse, ProviderError> {
+        debug!(
+            "Together AI embeddings request for model: {}",
+            request.model
+        );
+
+        let url = format!("{}/v1/embeddings", self.base_url);
+
+        let response = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(request)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Network(e.to_string()))?;
+
+        let status = response.status().as_u16();
+        if status >= 400 {
+            let body = response.text().await.unwrap_or_default();
+            error!("Together AI embeddings API error {}: {}", status, body);
+            return Err(ProviderError::Api {
+                status,
+                message: body,
+            });
+        }
+
+        response
+            .json::<EmbeddingResponse>()
+            .await
+            .map_err(|e| ProviderError::Parse(e.to_string()))
     }
 }
 

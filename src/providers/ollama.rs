@@ -5,7 +5,10 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error};
 
-use super::types::{ChatRequest, ChatResponse, ResponseFormatType, StreamChunk, Usage};
+use super::types::{
+    ChatRequest, ChatResponse, EmbeddingData, EmbeddingRequest, EmbeddingResponse, EmbeddingUsage,
+    ResponseFormatType, StreamChunk, Usage,
+};
 use super::{Provider, ProviderError};
 
 pub struct OllamaProvider {
@@ -210,6 +213,77 @@ impl Provider for OllamaProvider {
 
         Ok(Box::pin(stream))
     }
+
+    async fn embeddings(
+        &self,
+        request: &EmbeddingRequest,
+    ) -> Result<EmbeddingResponse, ProviderError> {
+        debug!("Ollama embeddings request for model: {}", request.model);
+
+        let url = format!("{}/api/embed", self.base_url);
+        let inputs = request.input.to_vec();
+
+        let ollama_embed_req = OllamaEmbedRequest {
+            model: request.model.clone(),
+            input: inputs,
+        };
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&ollama_embed_req)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Network(e.to_string()))?;
+
+        let status = response.status().as_u16();
+        if status >= 400 {
+            let body = response.text().await.unwrap_or_default();
+            error!("Ollama embeddings API error {}: {}", status, body);
+            return Err(ProviderError::Api {
+                status,
+                message: body,
+            });
+        }
+
+        let ollama_resp: OllamaEmbedResponse = response
+            .json()
+            .await
+            .map_err(|e| ProviderError::Parse(e.to_string()))?;
+
+        let data: Vec<EmbeddingData> = ollama_resp
+            .embeddings
+            .into_iter()
+            .enumerate()
+            .map(|(idx, embedding)| EmbeddingData {
+                object: "embedding".to_string(),
+                embedding,
+                index: idx,
+            })
+            .collect();
+
+        Ok(EmbeddingResponse::new(
+            request.model.clone(),
+            data,
+            EmbeddingUsage {
+                prompt_tokens: 0,
+                total_tokens: 0,
+            },
+        ))
+    }
+}
+
+// ── Ollama embedding types ──
+
+#[derive(Debug, Serialize)]
+struct OllamaEmbedRequest {
+    model: String,
+    input: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OllamaEmbedResponse {
+    embeddings: Vec<Vec<f64>>,
 }
 
 /// Parse Ollama's NDJSON stream into OpenAI-compatible StreamChunks
@@ -240,4 +314,335 @@ fn parse_ollama_stream(text: &str, model: &str) -> Vec<Result<StreamChunk, Provi
     }
 
     chunks
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::providers::types::{JsonSchemaFormat, Message, ResponseFormat, ResponseFormatType};
+
+    fn create_test_request(model: &str) -> ChatRequest {
+        ChatRequest {
+            model: model.to_string(),
+            messages: vec![],
+            temperature: None,
+            max_tokens: None,
+            top_p: None,
+            stream: None,
+            stop: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            tools: None,
+            tool_choice: None,
+            response_format: None,
+        }
+    }
+
+    #[test]
+    fn test_message_format_basic() {
+        let mut req = create_test_request("llama2");
+        req.messages = vec![
+            Message {
+                role: "user".to_string(),
+                content: Some("Hello".to_string()),
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            },
+            Message {
+                role: "assistant".to_string(),
+                content: Some("Hi there!".to_string()),
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            },
+        ];
+
+        let ollama_req = to_ollama_request(&req, false);
+
+        assert_eq!(ollama_req.messages.len(), 2);
+        assert_eq!(ollama_req.messages[0].role, "user");
+        assert_eq!(ollama_req.messages[0].content, "Hello");
+        assert_eq!(ollama_req.messages[1].role, "assistant");
+        assert_eq!(ollama_req.messages[1].content, "Hi there!");
+    }
+
+    #[test]
+    fn test_message_format_system_passthrough() {
+        let mut req = create_test_request("llama2");
+        req.messages = vec![
+            Message {
+                role: "system".to_string(),
+                content: Some("You are a helpful assistant.".to_string()),
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            },
+            Message {
+                role: "user".to_string(),
+                content: Some("Question?".to_string()),
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            },
+        ];
+
+        let ollama_req = to_ollama_request(&req, false);
+
+        assert_eq!(ollama_req.messages[0].role, "system");
+        assert_eq!(
+            ollama_req.messages[0].content,
+            "You are a helpful assistant."
+        );
+    }
+
+    #[test]
+    fn test_message_empty_content_defaults() {
+        let mut req = create_test_request("llama2");
+        req.messages = vec![Message {
+            role: "user".to_string(),
+            content: None,
+            tool_calls: None,
+            tool_call_id: None,
+            name: None,
+        }];
+
+        let ollama_req = to_ollama_request(&req, false);
+
+        assert_eq!(ollama_req.messages[0].content, "");
+    }
+
+    #[test]
+    fn test_options_mapping_temperature() {
+        let mut req = create_test_request("llama2");
+        req.temperature = Some(0.7);
+
+        let ollama_req = to_ollama_request(&req, false);
+
+        assert!(ollama_req.options.is_some());
+        let opts = ollama_req.options.unwrap();
+        assert_eq!(opts.temperature, Some(0.7));
+        assert_eq!(opts.top_p, None);
+        assert_eq!(opts.num_predict, None);
+        assert_eq!(opts.stop, None);
+    }
+
+    #[test]
+    fn test_options_mapping_top_p() {
+        let mut req = create_test_request("llama2");
+        req.top_p = Some(0.9);
+
+        let ollama_req = to_ollama_request(&req, false);
+
+        assert!(ollama_req.options.is_some());
+        let opts = ollama_req.options.unwrap();
+        assert_eq!(opts.temperature, None);
+        assert_eq!(opts.top_p, Some(0.9));
+    }
+
+    #[test]
+    fn test_options_mapping_max_tokens_to_num_predict() {
+        let mut req = create_test_request("llama2");
+        req.max_tokens = Some(256);
+
+        let ollama_req = to_ollama_request(&req, false);
+
+        assert!(ollama_req.options.is_some());
+        let opts = ollama_req.options.unwrap();
+        assert_eq!(opts.num_predict, Some(256));
+    }
+
+    #[test]
+    fn test_options_mapping_all_params() {
+        let mut req = create_test_request("llama2");
+        req.temperature = Some(0.7);
+        req.top_p = Some(0.9);
+        req.max_tokens = Some(512);
+        req.stop = Some(vec!["END".to_string(), "DONE".to_string()]);
+
+        let ollama_req = to_ollama_request(&req, false);
+
+        assert!(ollama_req.options.is_some());
+        let opts = ollama_req.options.unwrap();
+        assert_eq!(opts.temperature, Some(0.7));
+        assert_eq!(opts.top_p, Some(0.9));
+        assert_eq!(opts.num_predict, Some(512));
+        assert_eq!(opts.stop, Some(vec!["END".to_string(), "DONE".to_string()]));
+    }
+
+    #[test]
+    fn test_options_none_when_no_params() {
+        let req = create_test_request("llama2");
+
+        let ollama_req = to_ollama_request(&req, false);
+
+        assert!(ollama_req.options.is_none());
+    }
+
+    #[test]
+    fn test_options_present_only_with_temperature() {
+        let mut req = create_test_request("llama2");
+        req.temperature = Some(0.5);
+        req.max_tokens = None;
+        req.top_p = None;
+        req.stop = None;
+
+        let ollama_req = to_ollama_request(&req, false);
+
+        assert!(ollama_req.options.is_some());
+    }
+
+    #[test]
+    fn test_options_present_only_with_stop() {
+        let mut req = create_test_request("llama2");
+        req.temperature = None;
+        req.max_tokens = None;
+        req.top_p = None;
+        req.stop = Some(vec!["###".to_string()]);
+
+        let ollama_req = to_ollama_request(&req, false);
+
+        assert!(ollama_req.options.is_some());
+        let opts = ollama_req.options.unwrap();
+        assert_eq!(opts.stop, Some(vec!["###".to_string()]));
+        assert_eq!(opts.temperature, None);
+    }
+
+    #[test]
+    fn test_response_format_json_object() {
+        let mut req = create_test_request("llama2");
+        req.response_format = Some(ResponseFormat {
+            format_type: ResponseFormatType::JsonObject,
+            json_schema: None,
+        });
+
+        let ollama_req = to_ollama_request(&req, false);
+
+        assert!(ollama_req.format.is_some());
+        let format_val = ollama_req.format.unwrap();
+        assert_eq!(format_val, serde_json::Value::String("json".to_string()));
+    }
+
+    #[test]
+    fn test_response_format_json_schema_with_schema() {
+        let mut req = create_test_request("llama2");
+        let schema_obj = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": "string" },
+                "age": { "type": "integer" }
+            }
+        });
+        req.response_format = Some(ResponseFormat {
+            format_type: ResponseFormatType::JsonSchema,
+            json_schema: Some(JsonSchemaFormat {
+                name: "Person".to_string(),
+                description: Some("A person's info".to_string()),
+                schema: Some(schema_obj.clone()),
+                strict: Some(true),
+            }),
+        });
+
+        let ollama_req = to_ollama_request(&req, false);
+
+        assert!(ollama_req.format.is_some());
+        let format_val = ollama_req.format.unwrap();
+        assert_eq!(format_val, schema_obj);
+    }
+
+    #[test]
+    fn test_response_format_json_schema_without_schema_defaults_to_json() {
+        let mut req = create_test_request("llama2");
+        req.response_format = Some(ResponseFormat {
+            format_type: ResponseFormatType::JsonSchema,
+            json_schema: Some(JsonSchemaFormat {
+                name: "Empty".to_string(),
+                description: None,
+                schema: None,
+                strict: None,
+            }),
+        });
+
+        let ollama_req = to_ollama_request(&req, false);
+
+        assert!(ollama_req.format.is_some());
+        let format_val = ollama_req.format.unwrap();
+        assert_eq!(format_val, serde_json::Value::String("json".to_string()));
+    }
+
+    #[test]
+    fn test_response_format_json_schema_no_schema_object() {
+        let mut req = create_test_request("llama2");
+        req.response_format = Some(ResponseFormat {
+            format_type: ResponseFormatType::JsonSchema,
+            json_schema: None,
+        });
+
+        let ollama_req = to_ollama_request(&req, false);
+
+        assert!(ollama_req.format.is_none());
+    }
+
+    #[test]
+    fn test_response_format_text() {
+        let mut req = create_test_request("llama2");
+        req.response_format = Some(ResponseFormat {
+            format_type: ResponseFormatType::Text,
+            json_schema: None,
+        });
+
+        let ollama_req = to_ollama_request(&req, false);
+
+        assert!(ollama_req.format.is_none());
+    }
+
+    #[test]
+    fn test_stream_flag_false() {
+        let req = create_test_request("llama2");
+
+        let ollama_req = to_ollama_request(&req, false);
+
+        assert_eq!(ollama_req.stream, false);
+    }
+
+    #[test]
+    fn test_stream_flag_true() {
+        let req = create_test_request("llama2");
+
+        let ollama_req = to_ollama_request(&req, true);
+
+        assert_eq!(ollama_req.stream, true);
+    }
+
+    #[test]
+    fn test_model_passthrough() {
+        let req = create_test_request("custom-model:7b");
+
+        let ollama_req = to_ollama_request(&req, false);
+
+        assert_eq!(ollama_req.model, "custom-model:7b");
+    }
+
+    #[test]
+    fn test_combined_options_and_format() {
+        let mut req = create_test_request("llama2");
+        req.temperature = Some(0.8);
+        req.max_tokens = Some(1024);
+        req.response_format = Some(ResponseFormat {
+            format_type: ResponseFormatType::JsonObject,
+            json_schema: None,
+        });
+
+        let ollama_req = to_ollama_request(&req, true);
+
+        assert_eq!(ollama_req.stream, true);
+        assert!(ollama_req.options.is_some());
+        let opts = ollama_req.options.unwrap();
+        assert_eq!(opts.temperature, Some(0.8));
+        assert_eq!(opts.num_predict, Some(1024));
+        assert_eq!(
+            ollama_req.format,
+            Some(serde_json::Value::String("json".to_string()))
+        );
+    }
 }

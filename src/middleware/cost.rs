@@ -115,6 +115,38 @@ impl CostTracker {
             },
         );
 
+        // ── OpenAI embedding pricing ────────────────────────────────────
+        pricing.insert(
+            "text-embedding-3-small".into(),
+            ModelPricing {
+                input_per_million: 0.02,
+                output_per_million: 0.0,
+            },
+        );
+        pricing.insert(
+            "text-embedding-3-large".into(),
+            ModelPricing {
+                input_per_million: 0.13,
+                output_per_million: 0.0,
+            },
+        );
+        pricing.insert(
+            "text-embedding-ada-002".into(),
+            ModelPricing {
+                input_per_million: 0.10,
+                output_per_million: 0.0,
+            },
+        );
+
+        // ── Mistral embedding pricing ──────────────────────────────────
+        pricing.insert(
+            "mistral-embed".into(),
+            ModelPricing {
+                input_per_million: 0.10,
+                output_per_million: 0.0,
+            },
+        );
+
         // ── Anthropic pricing ───────────────────────────────────────────
         pricing.insert(
             "claude-opus-4-6".into(),

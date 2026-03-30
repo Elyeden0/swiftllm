@@ -10,7 +10,7 @@ pub mod types;
 
 use async_trait::async_trait;
 use futures::stream::BoxStream;
-use types::{ChatRequest, ChatResponse, StreamChunk};
+use types::{ChatRequest, ChatResponse, EmbeddingRequest, EmbeddingResponse, StreamChunk};
 
 /// Error type for provider operations
 #[derive(Debug)]
@@ -56,4 +56,14 @@ pub trait Provider: Send + Sync {
         &self,
         request: &ChatRequest,
     ) -> Result<BoxStream<'static, Result<StreamChunk, ProviderError>>, ProviderError>;
+
+    /// Send an embedding request
+    async fn embeddings(
+        &self,
+        _request: &EmbeddingRequest,
+    ) -> Result<EmbeddingResponse, ProviderError> {
+        Err(ProviderError::Config(
+            "Embeddings not supported by this provider".to_string(),
+        ))
+    }
 }
