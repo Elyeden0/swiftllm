@@ -11,6 +11,7 @@ pub struct Config {
     pub routing: RoutingConfig,
     pub cache: CacheConfig,
     pub rate_limit: RateLimitConfig,
+    pub otel: OtelConfig,
 }
 
 #[derive(Clone, Default)]
@@ -77,6 +78,23 @@ impl Default for CacheConfig {
             enabled: true,
             max_size: 1000,
             ttl_seconds: 300,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct OtelConfig {
+    pub enabled: bool,
+    pub endpoint: String,
+    pub service_name: String,
+}
+
+impl Default for OtelConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            endpoint: "http://localhost:4317".to_string(),
+            service_name: "swiftllm".to_string(),
         }
     }
 }
@@ -269,6 +287,21 @@ impl Config {
             );
         }
 
+        let otel = OtelConfig {
+            enabled: env::var("OTEL_ENABLED")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(false),
+            endpoint: env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "http://localhost:4317".to_string()),
+            service_name: env::var("OTEL_SERVICE_NAME")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "swiftllm".to_string()),
+        };
+
         if providers.is_empty() {
             anyhow::bail!(
                 "No providers configured. Set at least one provider's API key in your .env file.\n\
@@ -283,6 +316,7 @@ impl Config {
             routing,
             cache,
             rate_limit,
+            otel,
         })
     }
 
@@ -357,5 +391,60 @@ impl Config {
         let mut providers: Vec<_> = self.providers.iter().collect();
         providers.sort_by_key(|(_, p)| p.priority);
         providers
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_otel_config_defaults() {
+        let config = OtelConfig::default();
+        assert!(!config.enabled);
+        assert_eq!(config.endpoint, "http://localhost:4317");
+        assert_eq!(config.service_name, "swiftllm");
+    }
+
+    /// Tests that exercise `load_from_env` with OTEL env vars are combined into
+    /// a single test to avoid race conditions from parallel env var mutation.
+    #[test]
+    fn test_otel_config_from_env() {
+        // --- Subcase 1: disabled by default ---
+        env::remove_var("OTEL_ENABLED");
+        env::remove_var("OTEL_EXPORTER_OTLP_ENDPOINT");
+        env::remove_var("OTEL_SERVICE_NAME");
+        env::set_var("OPENAI_API_KEY", "sk-test-key");
+
+        let config = Config::load_from_env().unwrap();
+        assert!(!config.otel.enabled);
+        assert_eq!(config.otel.endpoint, "http://localhost:4317");
+        assert_eq!(config.otel.service_name, "swiftllm");
+
+        // --- Subcase 2: enabled with custom values ---
+        env::set_var("OTEL_ENABLED", "true");
+        env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4317");
+        env::set_var("OTEL_SERVICE_NAME", "my-gateway");
+
+        let config = Config::load_from_env().unwrap();
+        assert!(config.otel.enabled);
+        assert_eq!(config.otel.endpoint, "http://collector:4317");
+        assert_eq!(config.otel.service_name, "my-gateway");
+
+        // --- Subcase 3: empty strings fall back to defaults ---
+        env::set_var("OTEL_ENABLED", "false");
+        env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", "");
+        env::set_var("OTEL_SERVICE_NAME", "");
+
+        let config = Config::load_from_env().unwrap();
+        assert!(!config.otel.enabled);
+        assert_eq!(config.otel.endpoint, "http://localhost:4317");
+        assert_eq!(config.otel.service_name, "swiftllm");
+
+        // Cleanup
+        env::remove_var("OTEL_ENABLED");
+        env::remove_var("OTEL_EXPORTER_OTLP_ENDPOINT");
+        env::remove_var("OTEL_SERVICE_NAME");
+        env::remove_var("OPENAI_API_KEY");
     }
 }

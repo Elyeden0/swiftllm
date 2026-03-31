@@ -69,6 +69,7 @@ fn make_config(providers: Vec<(&str, ProviderKind, Vec<&str>, u32)>) -> Config {
         },
         cache: CacheConfig::default(),
         rate_limit: swiftllm::config::RateLimitConfig::default(),
+        otel: swiftllm::config::OtelConfig::default(),
     }
 }
 

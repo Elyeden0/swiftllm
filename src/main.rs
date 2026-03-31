@@ -6,6 +6,8 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::info;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 #[derive(Parser)]
 #[command(name = "swiftllm")]
@@ -50,16 +52,37 @@ fn find_env_file(cli_path: Option<&PathBuf>) -> Option<PathBuf> {
     None
 }
 
+/// Initialize OpenTelemetry tracing pipeline and return a shutdown guard.
+/// When the guard is dropped, it flushes and shuts down the tracer provider.
+fn init_otel(
+    otel_config: &config::OtelConfig,
+) -> Option<opentelemetry_sdk::trace::SdkTracerProvider> {
+    if !otel_config.enabled {
+        return None;
+    }
+
+    use opentelemetry_otlp::WithExportConfig;
+
+    let exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_tonic()
+        .with_endpoint(&otel_config.endpoint)
+        .build()
+        .expect("Failed to create OTLP exporter");
+
+    let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+        .with_batch_exporter(exporter)
+        .with_resource(
+            opentelemetry_sdk::Resource::builder()
+                .with_service_name(otel_config.service_name.clone())
+                .build(),
+        )
+        .build();
+
+    Some(provider)
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "swiftllm=info".into()),
-        )
-        .init();
-
     let cli = Cli::parse();
 
     // Find and load the .env file
@@ -70,7 +93,6 @@ async fn main() -> anyhow::Result<()> {
             dotenvy::from_path(path).map_err(|e| {
                 anyhow::anyhow!("Failed to load .env file at {}: {}", path.display(), e)
             })?;
-            info!("Loaded .env from {}", path.display());
         }
         None => {
             let exe_dir = std::env::current_exe()
@@ -105,11 +127,38 @@ async fn main() -> anyhow::Result<()> {
         config.port = port;
     }
 
+    // Initialize OpenTelemetry (must happen before tracing subscriber init)
+    let otel_provider = init_otel(&config.otel);
+
+    // Build the tracing subscriber with optional OpenTelemetry layer
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "swiftllm=info".into());
+
+    let fmt_layer = tracing_subscriber::fmt::layer();
+
+    let registry = tracing_subscriber::registry()
+        .with(env_filter)
+        .with(fmt_layer);
+
+    if let Some(ref provider) = otel_provider {
+        use opentelemetry::trace::TracerProvider;
+        let tracer = provider.tracer("swiftllm");
+        let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);
+        registry.with(otel_layer).init();
+    } else {
+        registry.init();
+    }
+
+    if let Some(ref path) = env_path {
+        info!("Loaded .env from {}", path.display());
+    }
+
     let port = config.port;
     let provider_count = config.providers.len();
     let cache_enabled = config.cache.enabled;
     let cache_max = config.cache.max_size;
     let cache_ttl = config.cache.ttl_seconds;
+    let otel_enabled = config.otel.enabled;
 
     // Build app state and router
     let state = Arc::new(server::AppState::new(config));
@@ -128,10 +177,18 @@ async fn main() -> anyhow::Result<()> {
             cache_max, cache_ttl
         );
     }
+    if otel_enabled {
+        info!("OpenTelemetry tracing enabled");
+    }
     info!("Dashboard: http://{}/dashboard", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
+
+    // Graceful shutdown: flush any remaining spans
+    if let Some(provider) = otel_provider {
+        provider.shutdown().ok();
+    }
 
     Ok(())
 }

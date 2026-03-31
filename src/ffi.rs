@@ -18,7 +18,8 @@ use std::sync::Arc;
 use tokio::runtime::Runtime;
 
 use crate::config::{
-    AuthConfig, CacheConfig, Config, ProviderConfig, ProviderKind, RateLimitConfig, RoutingConfig,
+    AuthConfig, CacheConfig, Config, OtelConfig, ProviderConfig, ProviderKind, RateLimitConfig,
+    RoutingConfig,
 };
 use crate::providers::types::{ChatRequest, Message};
 use crate::providers::Provider;
@@ -119,6 +120,7 @@ impl SwiftLLMHandle {
             },
             cache: CacheConfig::default(),
             rate_limit: RateLimitConfig::default(),
+            otel: OtelConfig::default(),
         };
         let state = Arc::new(AppState::new(config));
         self.state = Some(state.clone());

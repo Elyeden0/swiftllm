@@ -392,6 +392,16 @@ impl CostTracker {
         stats.errors += 1;
     }
 
+    /// Look up the USD cost for a given model and token count without recording it.
+    pub fn lookup_cost(&self, model: &str, input_tokens: u64, output_tokens: u64) -> Option<f64> {
+        let inner = self.inner.lock().unwrap();
+        inner.pricing.get(model).map(|pricing| {
+            (input_tokens as f64 * pricing.input_per_million
+                + output_tokens as f64 * pricing.output_per_million)
+                / 1_000_000.0
+        })
+    }
+
     /// Get a snapshot of all stats
     pub fn snapshot(&self) -> StatsSnapshot {
         let inner = self.inner.lock().unwrap();

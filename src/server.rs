@@ -10,7 +10,7 @@ use futures::StreamExt;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio_stream::wrappers::ReceiverStream;
-use tracing::{error, info, warn};
+use tracing::{error, info, instrument, warn, Span};
 
 use crate::config::{Config, ProviderKind};
 use crate::middleware::cache::ResponseCache;
@@ -246,6 +246,20 @@ async fn list_models(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 }
 
 /// Main chat completions endpoint — routes to the appropriate provider
+#[instrument(
+    name = "gen_ai.chat",
+    skip_all,
+    fields(
+        gen_ai.system,
+        gen_ai.request.model = %request.model,
+        gen_ai.request.max_tokens = request.max_tokens.map(|v| v as i64),
+        gen_ai.request.temperature = request.temperature.map(|v| v.to_string()).as_deref(),
+        gen_ai.response.model,
+        gen_ai.usage.input_tokens,
+        gen_ai.usage.output_tokens,
+        gen_ai.usage.cost,
+    )
+)]
 async fn chat_completions(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -296,6 +310,9 @@ async fn chat_completions(
             )
         })?;
 
+    // Record provider on the span
+    Span::current().record("gen_ai.system", provider_name.as_str());
+
     // Rate limit check (per provider)
     if let Some(limiter) = &state.rate_limiter {
         if let Err(retry_after) = limiter.check(provider_name) {
@@ -325,7 +342,10 @@ async fn chat_completions(
         if let Some(cache) = &state.cache {
             if let Some(cached) = cache.get(&request) {
                 info!(model = %request.model, "Cache hit");
+                Span::current().record("gen_ai.usage.input_tokens", "0");
+                Span::current().record("gen_ai.usage.output_tokens", "0");
                 state.cost_tracker.record_cache_hit();
+                tracing::info!(name: "gen_ai.cache.hit", model = %request.model);
                 return Ok(Json(cached).into_response());
             }
         }
@@ -361,14 +381,30 @@ async fn chat_completions(
         // Try primary provider, failover on error
         match provider.chat(&request).await {
             Ok(response) => {
-                // Track cost
+                let span = Span::current();
+                span.record("gen_ai.response.model", response.model.as_str());
+
+                // Track cost and record usage on span
                 if let Some(usage) = &response.usage {
+                    span.record("gen_ai.usage.input_tokens", usage.prompt_tokens as i64);
+                    span.record("gen_ai.usage.output_tokens", usage.completion_tokens as i64);
                     state.cost_tracker.record_request(
                         provider_name,
                         &request.model,
                         usage.prompt_tokens,
                         usage.completion_tokens,
                     );
+
+                    // Record cost from the cost tracker snapshot
+                    let cost = compute_token_cost(
+                        &state.cost_tracker,
+                        &request.model,
+                        usage.prompt_tokens,
+                        usage.completion_tokens,
+                    );
+                    if let Some(cost) = cost {
+                        span.record("gen_ai.usage.cost", cost);
+                    }
                 }
 
                 // Cache the response
@@ -385,6 +421,7 @@ async fn chat_completions(
                     "Primary provider failed, attempting failover"
                 );
                 state.cost_tracker.record_error(provider_name);
+                tracing::info!(name: "gen_ai.failover", from_provider = provider_name.as_str());
 
                 // Try failover chain (skip the provider that already failed)
                 let failover_chain: Vec<_> = state
@@ -399,17 +436,38 @@ async fn chat_completions(
 
                 match crate::failover::chat_with_failover(&failover_chain, &request).await {
                     Ok((fallback_name, response)) => {
+                        let span = Span::current();
+                        span.record("gen_ai.system", fallback_name.as_str());
+                        span.record("gen_ai.response.model", response.model.as_str());
                         info!(
                             fallback_provider = fallback_name.as_str(),
                             "Failover succeeded"
                         );
+                        tracing::info!(
+                            name: "gen_ai.failover.success",
+                            to_provider = fallback_name.as_str()
+                        );
                         if let Some(usage) = &response.usage {
+                            span.record("gen_ai.usage.input_tokens", usage.prompt_tokens as i64);
+                            span.record(
+                                "gen_ai.usage.output_tokens",
+                                usage.completion_tokens as i64,
+                            );
                             state.cost_tracker.record_request(
                                 &fallback_name,
                                 &request.model,
                                 usage.prompt_tokens,
                                 usage.completion_tokens,
                             );
+                            let cost = compute_token_cost(
+                                &state.cost_tracker,
+                                &request.model,
+                                usage.prompt_tokens,
+                                usage.completion_tokens,
+                            );
+                            if let Some(cost) = cost {
+                                span.record("gen_ai.usage.cost", cost);
+                            }
                         }
                         if let Some(cache) = &state.cache {
                             cache.put(&request, response.clone());
@@ -423,7 +481,28 @@ async fn chat_completions(
     }
 }
 
+/// Compute the USD cost for a given model and token usage.
+/// Returns None if the model is not in the pricing table.
+fn compute_token_cost(
+    cost_tracker: &CostTracker,
+    model: &str,
+    input_tokens: u64,
+    output_tokens: u64,
+) -> Option<f64> {
+    cost_tracker.lookup_cost(model, input_tokens, output_tokens)
+}
+
 /// Embeddings endpoint — routes to the appropriate provider
+#[instrument(
+    name = "gen_ai.embeddings",
+    skip_all,
+    fields(
+        gen_ai.system,
+        gen_ai.request.model = %request.model,
+        gen_ai.response.model,
+        gen_ai.usage.input_tokens,
+    )
+)]
 async fn embeddings(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -474,6 +553,9 @@ async fn embeddings(
             )
         })?;
 
+    // Record provider on the span
+    Span::current().record("gen_ai.system", provider_name.as_str());
+
     // Rate limit check
     if let Some(limiter) = &state.rate_limiter {
         if let Err(retry_after) = limiter.check(provider_name) {
@@ -518,6 +600,13 @@ async fn embeddings(
 
     match provider.embeddings(&request).await {
         Ok(response) => {
+            let span = Span::current();
+            span.record("gen_ai.response.model", response.model.as_str());
+            span.record(
+                "gen_ai.usage.input_tokens",
+                response.usage.prompt_tokens as i64,
+            );
+
             // Track cost (embeddings only have prompt tokens)
             state.cost_tracker.record_request(
                 provider_name,

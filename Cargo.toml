@@ -40,4 +40,8 @@ anyhow = "1"
 hmac = "0.12"
 sha2 = "0.10"
 secrecy = { version = "0.10", features = ["serde"] }
+opentelemetry = "0.31"
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic"] }
+tracing-opentelemetry = "0.32"
 pyo3 = { version = "0.22", features = ["extension-module"], optional = true }
