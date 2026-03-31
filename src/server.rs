@@ -19,10 +19,13 @@ use crate::middleware::rate_limit::RateLimiter;
 use crate::providers::anthropic::AnthropicProvider;
 use crate::providers::bedrock::BedrockProvider;
 use crate::providers::gemini::GeminiProvider;
+use crate::providers::generic::GenericProvider;
 use crate::providers::groq::GroqProvider;
 use crate::providers::mistral::MistralProvider;
 use crate::providers::ollama::OllamaProvider;
 use crate::providers::openai::OpenAiProvider;
+use crate::providers::registry;
+use crate::providers::schema::ApiFormat;
 use crate::providers::together::TogetherProvider;
 use crate::providers::types::{ChatRequest, EmbeddingRequest};
 use crate::providers::{Provider, ProviderError};
@@ -108,6 +111,34 @@ impl AppState {
                         secret_key,
                         session_token,
                     ))
+                }
+                ProviderKind::Generic(ref schema_name) => {
+                    if let Some(schema) = registry::find_schema(schema_name) {
+                        if schema.format == ApiFormat::OpenAiCompatible {
+                            Arc::new(GenericProvider::new(
+                                schema,
+                                provider_config
+                                    .api_key
+                                    .as_ref()
+                                    .map(|s| s.expose_secret().to_string())
+                                    .unwrap_or_default(),
+                                provider_config.base_url.clone(),
+                            ))
+                        } else {
+                            // Custom-format providers should use their dedicated modules
+                            warn!(
+                                provider = name.as_str(),
+                                "Skipping custom-format provider without dedicated module"
+                            );
+                            continue;
+                        }
+                    } else {
+                        warn!(
+                            provider = name.as_str(),
+                            "Unknown provider schema, skipping"
+                        );
+                        continue;
+                    }
                 }
             };
             providers.insert(name.clone(), provider);

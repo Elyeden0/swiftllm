@@ -1,10 +1,13 @@
 pub mod anthropic;
 pub mod bedrock;
 pub mod gemini;
+pub mod generic;
 pub mod groq;
 pub mod mistral;
 pub mod ollama;
 pub mod openai;
+pub mod registry;
+pub mod schema;
 pub mod together;
 pub mod types;
 

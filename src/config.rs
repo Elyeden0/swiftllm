@@ -58,6 +58,8 @@ pub enum ProviderKind {
     Groq,
     Together,
     Bedrock,
+    /// A provider defined in the registry — instantiated via `GenericProvider`.
+    Generic(String),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -146,7 +148,14 @@ fn parse_provider_kind(s: &str) -> Option<ProviderKind> {
         "groq" => Some(ProviderKind::Groq),
         "together" => Some(ProviderKind::Together),
         "bedrock" => Some(ProviderKind::Bedrock),
-        _ => None,
+        other => {
+            // Check the provider registry for a matching schema
+            if crate::providers::registry::find_schema(other).is_some() {
+                Some(ProviderKind::Generic(other.to_string()))
+            } else {
+                None
+            }
+        }
     }
 }
 
@@ -369,6 +378,12 @@ impl Config {
                         || model.starts_with("cohere.")
                         || model.starts_with("ai21.")
                         || model.starts_with("mistral.")
+                }
+                ProviderKind::Generic(ref schema_name) => {
+                    // Check if the model is in the schema's known_models list
+                    crate::providers::registry::find_schema(schema_name)
+                        .map(|s| s.known_models.contains(&model))
+                        .unwrap_or(false)
                 }
             };
             if matches {
