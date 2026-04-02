@@ -16,6 +16,10 @@ crate-type = ["cdylib", "rlib"]
 name = "swiftllm-server"
 path = "src/main.rs"
 
+[[bin]]
+name = "swiftllm-mcp"
+path = "src/mcp_server.rs"
+
 [features]
 default = []
 python = ["dep:pyo3"]
