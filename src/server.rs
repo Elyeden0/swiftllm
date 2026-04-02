@@ -13,6 +13,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tracing::{error, info, instrument, warn, Span};
 
 use crate::config::{Config, ProviderKind};
+use crate::consensus::ConsensusEngine;
 use crate::middleware::cache::ResponseCache;
 use crate::middleware::cost::CostTracker;
 use crate::middleware::rate_limit::RateLimiter;
@@ -29,6 +30,8 @@ use crate::providers::schema::ApiFormat;
 use crate::providers::together::TogetherProvider;
 use crate::providers::types::{ChatRequest, EmbeddingRequest};
 use crate::providers::{Provider, ProviderError};
+use crate::routing::latency::LatencyTracker;
+use crate::routing::router::SmartRouter;
 use secrecy::ExposeSecret;
 
 /// Shared application state
@@ -38,6 +41,7 @@ pub struct AppState {
     pub cache: Option<ResponseCache>,
     pub cost_tracker: CostTracker,
     pub rate_limiter: Option<RateLimiter>,
+    pub smart_router: SmartRouter,
 }
 
 impl AppState {
@@ -181,6 +185,7 @@ impl AppState {
             cache,
             cost_tracker: CostTracker::new(),
             rate_limiter,
+            smart_router: SmartRouter::new(LatencyTracker::new()),
         }
     }
 
@@ -325,6 +330,44 @@ async fn chat_completions(
         }
     }
 
+    // ── Consensus mode ───────────────────────────────────────────────────
+    if let Some(ref consensus_config) = request.consensus {
+        info!(
+            strategy = ?consensus_config.strategy,
+            models = ?consensus_config.models,
+            "Routing to consensus engine"
+        );
+
+        let response = ConsensusEngine::execute(&state, &request, consensus_config)
+            .await
+            .map_err(provider_error_to_response)?;
+
+        return Ok(Json(response).into_response());
+    }
+
+    // ── Smart routing ─────────────────────────────────────────────────────
+    let mut routing_metadata = None;
+    let mut request = request;
+
+    if let Some(ref routing_config) = request.routing {
+        let (routed_provider, routed_model, metadata) = state
+            .smart_router
+            .select_model(routing_config, &state.config, &state.cost_tracker)
+            .map_err(provider_error_to_response)?;
+
+        info!(
+            strategy = metadata.strategy.as_str(),
+            selected_model = routed_model.as_str(),
+            selected_provider = routed_provider.as_str(),
+            "Smart routing selected model"
+        );
+
+        request.model = routed_model;
+        // Clear routing config so it isn't forwarded to the provider
+        request.routing = None;
+        routing_metadata = Some(metadata);
+    }
+
     // Find provider for the requested model (needed for rate limit check)
     let (provider_name, _provider_config) = state
         .config
@@ -402,16 +445,30 @@ async fn chat_completions(
     );
 
     if request.is_streaming() {
-        handle_streaming(provider.clone(), request)
+        let start = std::time::Instant::now();
+        let result = handle_streaming(provider.clone(), request)
             .await
             .map_err(|e| {
                 state.cost_tracker.record_error(provider_name);
                 provider_error_to_response(e)
-            })
+            });
+        state
+            .smart_router
+            .latency_tracker()
+            .record(provider_name, start.elapsed());
+        result
     } else {
         // Try primary provider, failover on error
+        let start = std::time::Instant::now();
         match provider.chat(&request).await {
-            Ok(response) => {
+            Ok(mut response) => {
+                state
+                    .smart_router
+                    .latency_tracker()
+                    .record(provider_name, start.elapsed());
+
+                // Attach routing metadata if smart routing was used
+                response.routing_metadata = routing_metadata;
                 let span = Span::current();
                 span.record("gen_ai.response.model", response.model.as_str());
 

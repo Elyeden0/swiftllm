@@ -689,6 +689,8 @@ mod tests {
             tools: None,
             tool_choice: None,
             response_format: None,
+            consensus: None,
+            routing: None,
         };
 
         let converse_req = to_converse_request(&request);
@@ -720,6 +722,8 @@ mod tests {
             tools: None,
             tool_choice: None,
             response_format: None,
+            consensus: None,
+            routing: None,
         };
 
         let converse_req = to_converse_request(&request);
@@ -762,6 +766,8 @@ mod tests {
             tools: None,
             tool_choice: None,
             response_format: None,
+            consensus: None,
+            routing: None,
         };
 
         let converse_req = to_converse_request(&request);
@@ -815,6 +821,8 @@ mod tests {
             tools: None,
             tool_choice: None,
             response_format: None,
+            consensus: None,
+            routing: None,
         };
 
         let converse_req = to_converse_request(&request);
@@ -854,6 +862,8 @@ mod tests {
             tools: None,
             tool_choice: None,
             response_format: None,
+            consensus: None,
+            routing: None,
         };
 
         let converse_req = to_converse_request(&request);
@@ -900,6 +910,8 @@ mod tests {
             }]),
             tool_choice: None,
             response_format: None,
+            consensus: None,
+            routing: None,
         };
 
         let converse_req = to_converse_request(&request);
@@ -941,6 +953,8 @@ mod tests {
                 format_type: ResponseFormatType::JsonObject,
                 json_schema: None,
             }),
+            consensus: None,
+            routing: None,
         };
 
         let converse_req = to_converse_request(&request);
@@ -980,6 +994,8 @@ mod tests {
                     strict: Some(true),
                 }),
             }),
+            consensus: None,
+            routing: None,
         };
 
         let converse_req = to_converse_request(&request);
@@ -1234,6 +1250,8 @@ mod tests {
             tools: None,
             tool_choice: None,
             response_format: None,
+            consensus: None,
+            routing: None,
         };
 
         let converse_req = to_converse_request(&request);
@@ -1277,6 +1295,8 @@ mod tests {
             tools: None,
             tool_choice: None,
             response_format: None,
+            consensus: None,
+            routing: None,
         };
 
         let converse_req = to_converse_request(&request);

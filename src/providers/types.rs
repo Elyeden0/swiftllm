@@ -1,4 +1,7 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+use crate::routing::{RoutingMetadata, SmartRoutingConfig};
 
 // ── Tool / Function-calling types ──────────────────────────────────────────
 
@@ -92,6 +95,42 @@ pub struct ResponseFormat {
     pub json_schema: Option<JsonSchemaFormat>,
 }
 
+// ── Consensus types ────────────────────────────────────────────────────────
+
+/// Configuration for multi-model consensus.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsensusConfig {
+    /// Models to query in parallel.
+    pub models: Vec<String>,
+    /// Strategy for combining results.
+    pub strategy: ConsensusStrategy,
+    /// Model used as judge (best_of) or synthesizer (merge).
+    /// Defaults to the first model in the list.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub judge: Option<String>,
+}
+
+/// Strategy for resolving consensus across multiple model responses.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ConsensusStrategy {
+    BestOf,
+    Majority,
+    Merge,
+}
+
+/// Metadata about the consensus process, included in the response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsensusMetadata {
+    pub strategy: String,
+    pub models_queried: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub judge: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub winner: Option<String>,
+    pub individual_latencies_ms: HashMap<String, u64>,
+}
+
 // ── Chat completion request ────────────────────────────────────────────────
 
 /// OpenAI-compatible chat completion request
@@ -122,6 +161,12 @@ pub struct ChatRequest {
     /// Structured output / JSON mode configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_format: Option<ResponseFormat>,
+    /// Multi-model consensus configuration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consensus: Option<ConsensusConfig>,
+    /// Smart routing configuration — when present, SwiftLLM picks the model.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub routing: Option<SmartRoutingConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,6 +197,10 @@ pub struct ChatResponse {
     pub choices: Vec<Choice>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consensus_metadata: Option<ConsensusMetadata>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub routing_metadata: Option<RoutingMetadata>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -293,6 +342,8 @@ impl ChatResponse {
                 finish_reason: Some("stop".to_string()),
             }],
             usage,
+            consensus_metadata: None,
+            routing_metadata: None,
         }
     }
 
@@ -318,6 +369,8 @@ impl ChatResponse {
                 finish_reason: Some("tool_calls".to_string()),
             }],
             usage,
+            consensus_metadata: None,
+            routing_metadata: None,
         }
     }
 }

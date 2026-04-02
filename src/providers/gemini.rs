@@ -427,6 +427,8 @@ mod tests {
             tools: None,
             tool_choice: None,
             response_format: None,
+            consensus: None,
+            routing: None,
         }
     }
 

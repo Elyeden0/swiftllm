@@ -43,6 +43,8 @@ fn make_request(model: &str) -> ChatRequest {
         tools: None,
         tool_choice: None,
         response_format: None,
+        consensus: None,
+        routing: None,
     }
 }
 

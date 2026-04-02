@@ -261,6 +261,8 @@ pub unsafe extern "C" fn swiftllm_completion(
         tools: None,
         tool_choice: None,
         response_format: None,
+        consensus: None,
+        routing: None,
     };
 
     let provider_name = state

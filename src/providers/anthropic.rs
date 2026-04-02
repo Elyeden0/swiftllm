@@ -343,6 +343,8 @@ mod tests {
             tools: None,
             tool_choice: None,
             response_format,
+            consensus: None,
+            routing: None,
         }
     }
 

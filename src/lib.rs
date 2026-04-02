@@ -1,10 +1,12 @@
 // SwiftLLM library crate — shared between the CLI binary and the Python extension.
 
 pub mod config;
+pub mod consensus;
 pub mod failover;
 pub mod ffi;
 pub mod middleware;
 pub mod providers;
+pub mod routing;
 pub mod server;
 
 #[cfg(feature = "python")]
