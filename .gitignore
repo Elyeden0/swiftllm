@@ -1,4 +1,6 @@
 /target
+swiftllm-node/target
+swiftllm-node/node_modules
 config.toml
 .env
 *.swp
