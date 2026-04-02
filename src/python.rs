@@ -359,6 +359,9 @@ impl PySwiftLLM {
             frequency_penalty: None,
             tools: tools_vec,
             tool_choice: tool_choice_val,
+            response_format: None,
+            consensus: None,
+            routing: None,
         };
 
         // Find the right provider

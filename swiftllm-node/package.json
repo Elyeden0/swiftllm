@@ -1,0 +1,32 @@
+{
+  "name": "swiftllm",
+  "version": "0.4.0",
+  "description": "Blazing-fast universal LLM client for Node.js — call OpenAI, Anthropic, Gemini, and more through a single API",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "napi": {
+    "name": "swiftllm",
+    "triples": {
+      "defaults": true
+    }
+  },
+  "license": "MIT",
+  "repository": "https://github.com/Elyeden0/swiftllm",
+  "keywords": [
+    "llm",
+    "openai",
+    "anthropic",
+    "gemini",
+    "mistral",
+    "ai",
+    "napi",
+    "native"
+  ],
+  "files": [
+    "index.js",
+    "index.d.ts"
+  ],
+  "devDependencies": {
+    "@napi-rs/cli": "^2"
+  }
+}

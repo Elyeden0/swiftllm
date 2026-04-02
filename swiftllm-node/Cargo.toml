@@ -1,0 +1,22 @@
+[package]
+name = "swiftllm-node"
+version = "0.4.0"
+edition = "2021"
+description = "Node.js/TypeScript bindings for SwiftLLM — a blazing-fast universal LLM client"
+license = "MIT"
+repository = "https://github.com/Elyeden0/swiftllm"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "2", features = ["async", "serde-json"] }
+napi-derive = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls-native-roots-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }
+tokio = { version = "1", features = ["full"] }
+
+[build-dependencies]
+napi-build = "2"
