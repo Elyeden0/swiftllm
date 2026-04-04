@@ -209,6 +209,19 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/embeddings", post(embeddings))
         .route("/v1/models", get(list_models))
+        .route(
+            "/v1/audio/speech",
+            post(crate::endpoints::audio::speech),
+        )
+        .route(
+            "/v1/audio/transcriptions",
+            post(crate::endpoints::audio::transcriptions),
+        )
+        .route(
+            "/v1/images/generations",
+            post(crate::endpoints::images::generations),
+        )
+        .route("/v1/search", post(crate::endpoints::search::search))
         .route("/health", get(health_check))
         .route("/api/stats", get(get_stats))
         .route("/dashboard", get(dashboard))
