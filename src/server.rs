@@ -209,10 +209,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/embeddings", post(embeddings))
         .route("/v1/models", get(list_models))
-        .route(
-            "/v1/audio/speech",
-            post(crate::endpoints::audio::speech),
-        )
+        .route("/v1/audio/speech", post(crate::endpoints::audio::speech))
         .route(
             "/v1/audio/transcriptions",
             post(crate::endpoints::audio::transcriptions),

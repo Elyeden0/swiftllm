@@ -79,7 +79,10 @@ pub async fn search(
             return Err(api_error(
                 StatusCode::BAD_REQUEST,
                 "invalid_request_error",
-                &format!("Unsupported search provider: {}. Supported: brave, tavily, serper, searxng", other),
+                &format!(
+                    "Unsupported search provider: {}. Supported: brave, tavily, serper, searxng",
+                    other
+                ),
             ));
         }
     };
@@ -93,8 +96,13 @@ async fn search_brave(
     _state: &AppState,
     request: &SearchRequest,
 ) -> Result<SearchResponse, (StatusCode, Json<serde_json::Value>)> {
-    let api_key = std::env::var("BRAVE_API_KEY")
-        .map_err(|_| api_error(StatusCode::BAD_REQUEST, "config_error", "BRAVE_API_KEY not set"))?;
+    let api_key = std::env::var("BRAVE_API_KEY").map_err(|_| {
+        api_error(
+            StatusCode::BAD_REQUEST,
+            "config_error",
+            "BRAVE_API_KEY not set",
+        )
+    })?;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -146,8 +154,13 @@ async fn search_tavily(
     _state: &AppState,
     request: &SearchRequest,
 ) -> Result<SearchResponse, (StatusCode, Json<serde_json::Value>)> {
-    let api_key = std::env::var("TAVILY_API_KEY")
-        .map_err(|_| api_error(StatusCode::BAD_REQUEST, "config_error", "TAVILY_API_KEY not set"))?;
+    let api_key = std::env::var("TAVILY_API_KEY").map_err(|_| {
+        api_error(
+            StatusCode::BAD_REQUEST,
+            "config_error",
+            "TAVILY_API_KEY not set",
+        )
+    })?;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -198,8 +211,13 @@ async fn search_serper(
     _state: &AppState,
     request: &SearchRequest,
 ) -> Result<SearchResponse, (StatusCode, Json<serde_json::Value>)> {
-    let api_key = std::env::var("SERPER_API_KEY")
-        .map_err(|_| api_error(StatusCode::BAD_REQUEST, "config_error", "SERPER_API_KEY not set"))?;
+    let api_key = std::env::var("SERPER_API_KEY").map_err(|_| {
+        api_error(
+            StatusCode::BAD_REQUEST,
+            "config_error",
+            "SERPER_API_KEY not set",
+        )
+    })?;
 
     let client = reqwest::Client::new();
     let resp = client
@@ -319,7 +337,16 @@ fn check_auth(
         .and_then(|v| v.strip_prefix("Bearer "));
 
     match provided_key {
-        Some(key) if state.config.auth.api_keys.iter().any(|k| k.expose_secret() == key) => Ok(()),
+        Some(key)
+            if state
+                .config
+                .auth
+                .api_keys
+                .iter()
+                .any(|k| k.expose_secret() == key) =>
+        {
+            Ok(())
+        }
         _ => Err(api_error(
             StatusCode::UNAUTHORIZED,
             "authentication_error",

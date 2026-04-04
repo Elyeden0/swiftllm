@@ -4,7 +4,7 @@ use axum::{
     body::Body,
     extract::State,
     http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    response::Response,
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -86,10 +86,20 @@ pub async fn speech(
     let (provider_name, _) = state
         .config
         .find_provider_for_model(&request.model)
-        .ok_or_else(|| api_error(StatusCode::BAD_REQUEST, "invalid_request_error", &format!("No provider configured for model: {}", request.model)))?;
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::BAD_REQUEST,
+                "invalid_request_error",
+                &format!("No provider configured for model: {}", request.model),
+            )
+        })?;
 
     let provider_config = state.config.providers.get(provider_name).ok_or_else(|| {
-        api_error(StatusCode::INTERNAL_SERVER_ERROR, "server_error", "Provider not initialized")
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "server_error",
+            "Provider not initialized",
+        )
     })?;
 
     let base_url = provider_config
@@ -122,9 +132,10 @@ pub async fn speech(
     }
 
     let content_type = content_type_for_format(&request.response_format);
-    let bytes = resp.bytes().await.map_err(|e| {
-        api_error(StatusCode::BAD_GATEWAY, "proxy_error", &e.to_string())
-    })?;
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| api_error(StatusCode::BAD_GATEWAY, "proxy_error", &e.to_string()))?;
 
     Ok(Response::builder()
         .header("Content-Type", content_type)
@@ -147,13 +158,20 @@ pub async fn transcriptions(
     // The model field is embedded in the multipart form; we default to whisper-1
     // and forward to the OpenAI provider (the most common transcription backend).
     let model = "whisper-1";
-    let (provider_name, _) = state
-        .config
-        .find_provider_for_model(model)
-        .ok_or_else(|| api_error(StatusCode::BAD_REQUEST, "invalid_request_error", &format!("No provider configured for model: {}", model)))?;
+    let (provider_name, _) = state.config.find_provider_for_model(model).ok_or_else(|| {
+        api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid_request_error",
+            &format!("No provider configured for model: {}", model),
+        )
+    })?;
 
     let provider_config = state.config.providers.get(provider_name).ok_or_else(|| {
-        api_error(StatusCode::INTERNAL_SERVER_ERROR, "server_error", "Provider not initialized")
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "server_error",
+            "Provider not initialized",
+        )
     })?;
 
     let base_url = provider_config
@@ -167,7 +185,11 @@ pub async fn transcriptions(
         .map(|s| s.expose_secret().to_string())
         .unwrap_or_default();
 
-    info!(model = model, provider = provider_name, "Routing transcription request");
+    info!(
+        model = model,
+        provider = provider_name,
+        "Routing transcription request"
+    );
 
     // Forward the raw multipart body to the upstream provider.
     let content_type = headers
@@ -178,7 +200,10 @@ pub async fn transcriptions(
 
     let client = reqwest::Client::new();
     let resp = client
-        .post(format!("{}/audio/transcriptions", base_url.trim_end_matches('/')))
+        .post(format!(
+            "{}/audio/transcriptions",
+            base_url.trim_end_matches('/')
+        ))
         .bearer_auth(&api_key)
         .header("Content-Type", content_type)
         .body(body.to_vec())
@@ -193,9 +218,10 @@ pub async fn transcriptions(
         return Err(api_error(status, "proxy_error", &body));
     }
 
-    let response_body = resp.text().await.map_err(|e| {
-        api_error(StatusCode::BAD_GATEWAY, "proxy_error", &e.to_string())
-    })?;
+    let response_body = resp
+        .text()
+        .await
+        .map_err(|e| api_error(StatusCode::BAD_GATEWAY, "proxy_error", &e.to_string()))?;
 
     Ok(Response::builder()
         .header("Content-Type", "application/json")
@@ -218,8 +244,21 @@ fn check_auth(
         .and_then(|v| v.strip_prefix("Bearer "));
 
     match provided_key {
-        Some(key) if state.config.auth.api_keys.iter().any(|k| k.expose_secret() == key) => Ok(()),
-        _ => Err(api_error(StatusCode::UNAUTHORIZED, "authentication_error", "Invalid API key")),
+        Some(key)
+            if state
+                .config
+                .auth
+                .api_keys
+                .iter()
+                .any(|k| k.expose_secret() == key) =>
+        {
+            Ok(())
+        }
+        _ => Err(api_error(
+            StatusCode::UNAUTHORIZED,
+            "authentication_error",
+            "Invalid API key",
+        )),
     }
 }
 

@@ -160,10 +160,7 @@ pub async fn generations(
             .as_deref()
             .unwrap_or("https://api.openai.com/v1");
         client
-            .post(format!(
-                "{}/images/generations",
-                base.trim_end_matches('/')
-            ))
+            .post(format!("{}/images/generations", base.trim_end_matches('/')))
             .bearer_auth(&api_key)
             .json(&request)
             .send()
@@ -230,7 +227,16 @@ fn check_auth(
         .and_then(|v| v.strip_prefix("Bearer "));
 
     match provided_key {
-        Some(key) if state.config.auth.api_keys.iter().any(|k| k.expose_secret() == key) => Ok(()),
+        Some(key)
+            if state
+                .config
+                .auth
+                .api_keys
+                .iter()
+                .any(|k| k.expose_secret() == key) =>
+        {
+            Ok(())
+        }
         _ => Err(api_error(
             StatusCode::UNAUTHORIZED,
             "authentication_error",

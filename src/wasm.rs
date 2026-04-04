@@ -63,13 +63,12 @@ impl WasmSwiftLLM {
     /// Send a chat completion request and return the JSON response.
     #[wasm_bindgen]
     pub async fn completion(&self, model: &str, prompt: &str) -> Result<JsValue, JsValue> {
-        let provider_name =
-            infer_provider(model).ok_or_else(|| JsValue::from_str("Cannot infer provider for model"))?;
+        let provider_name = infer_provider(model)
+            .ok_or_else(|| JsValue::from_str("Cannot infer provider for model"))?;
 
-        let provider = self
-            .providers
-            .get(&provider_name)
-            .ok_or_else(|| JsValue::from_str(&format!("Provider '{}' not configured", provider_name)))?;
+        let provider = self.providers.get(&provider_name).ok_or_else(|| {
+            JsValue::from_str(&format!("Provider '{}' not configured", provider_name))
+        })?;
 
         let base_url = provider
             .base_url
@@ -83,7 +82,10 @@ impl WasmSwiftLLM {
 
         let client = reqwest::Client::new();
         let resp = client
-            .post(format!("{}/chat/completions", base_url.trim_end_matches('/')))
+            .post(format!(
+                "{}/chat/completions",
+                base_url.trim_end_matches('/')
+            ))
             .header("Authorization", format!("Bearer {}", provider.api_key))
             .header("Content-Type", "application/json")
             .json(&body)
@@ -119,8 +121,8 @@ pub async fn quick_completion(
     api_key: &str,
 ) -> Result<JsValue, JsValue> {
     let mut instance = WasmSwiftLLM::new();
-    let provider_name =
-        infer_provider(model).ok_or_else(|| JsValue::from_str("Cannot infer provider for model"))?;
+    let provider_name = infer_provider(model)
+        .ok_or_else(|| JsValue::from_str("Cannot infer provider for model"))?;
     instance.add_provider(&provider_name, api_key, None)?;
     instance.completion(model, prompt).await
 }
